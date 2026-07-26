@@ -15,7 +15,7 @@ on:
     paths:
       - 'web/**'
       - 'resultados/resultados.db'
-      - '.github/workflows/deploy-web.yml'
+      - '.github/workflows/main.yml'
   workflow_dispatch:        # permite lanzarlo a mano desde la pestaña Actions
 
 # Permisos que necesita el despliegue a Pages.
