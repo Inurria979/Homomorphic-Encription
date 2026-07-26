@@ -1,67 +1,63 @@
-# Publica el visualizador de resultados en GitHub Pages.
+# =====================================================================
+# Publica el visualizador web (web/frontend) en GitHub Pages.
 #
-# La web es un frontend React que normalmente consume una API FastAPI. Como los
-# resultados son de SOLO LECTURA, aquí se precalculan a JSON estáticos
-# (web/exportar_estatico.py) y se compila el frontend en modo estático, de forma
-# que el sitio no necesita servidor Python.
+# En Pages no hay servidor Python, así que el sitio se compila en MODO
+# ESTÁTICO en dos pasos:
+#   1. web/exportar_estatico.py vuelca la API a JSON (resultados/resultados.db
+#      -> web/frontend/public/datos/**). La BD es de solo lectura, por eso las
+#      respuestas se pueden precalcular.
+#   2. Vite compila el frontend con VITE_DATOS_ESTATICOS=1 (api.js lee los JSON
+#      en vez de /api/...) y VITE_BASE=/<repo>/ (el sitio cuelga de un
+#      subdirectorio, no de la raíz del dominio).
 #
-# Se despliega en cada push a la rama principal que toque la web o los datos.
-
-name: Desplegar web en GitHub Pages
+# Requisito único en el repo: Settings -> Pages -> Source = "GitHub Actions".
+# =====================================================================
+name: Desplegar la web en GitHub Pages
 
 on:
   push:
-    branches: [main, Web]
-    paths:
-      - 'web/**'
-      - 'resultados/resultados.db'
-      - '.github/workflows/main.yml'
+    branches: [main]
   workflow_dispatch:        # permite lanzarlo a mano desde la pestaña Actions
 
-# Permisos que necesita el despliegue a Pages.
+# Permisos que necesita el despliegue oficial de Pages (OIDC).
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Un despliegue a la vez; no cancelar el que esté en curso.
+# Un despliegue a la vez; no se cancelan los que ya están en marcha.
 concurrency:
   group: pages
   cancel-in-progress: false
 
 jobs:
-  construir:
+  # -------------------------------------------------------------------
+  # 1) Compilar el sitio estático
+  # -------------------------------------------------------------------
+  compilar:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      # Intenta activar Pages en modo "GitHub Actions" si aún no lo está. El
-      # GITHUB_TOKEN por defecto normalmente NO tiene permiso para activarlo, así
-      # que este paso puede fallar sin que eso deba tumbar la compilación: se marca
-      # continue-on-error. Si falla, hay que activarlo una vez a mano en
-      # Settings > Pages > Source: GitHub Actions.
-      - name: Preparar GitHub Pages
-        uses: actions/configure-pages@v5
-        continue-on-error: true
-        with:
-          enablement: true
+      - name: Descargar el repositorio
+        uses: actions/checkout@v6
 
       - name: Preparar Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: '3.13'
+          python-version: '3.12'
 
-      # Solo hacen falta las dependencias de LECTURA de la BD, no torch ni tenseal.
-      - name: Instalar dependencias mínimas
-        run: pip install pandas numpy fastapi
+      # requirements.txt completo (torch, tenseal…) NO hace falta aquí: la
+      # exportación solo lee la BD con pandas y reutiliza las funciones de
+      # web/backend/api.py, que importa FastAPI a nivel de módulo.
+      - name: Instalar dependencias de la exportación
+        run: pip install "pandas>=2.2" "numpy>=2.0" fastapi
 
-      - name: Exportar los datos a JSON estáticos
+      - name: Exportar la BD a JSON estáticos
         run: python web/exportar_estatico.py
 
       - name: Preparar Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'          # Vite 8 exige >=20.19 / >=22.12
           cache: npm
           cache-dependency-path: web/frontend/package-lock.json
 
@@ -69,32 +65,46 @@ jobs:
         working-directory: web/frontend
         run: npm ci
 
-      - name: Compilar el sitio estático
+      # VITE_BASE se deduce del nombre del repo para no tener que tocar nada si
+      # se renombra. Caso especial: en un sitio de usuario (usuario.github.io)
+      # la web cuelga de la raíz.
+      - name: Compilar el frontend (modo estático)
         working-directory: web/frontend
         env:
-          # El sitio cuelga de /<nombre-del-repo>/ en github.io
-          VITE_BASE: /${{ github.event.repository.name }}/
           VITE_DATOS_ESTATICOS: '1'
-        run: npm run build
-
-      # GitHub Pages no sirve rutas que empiecen por _ ; además, un 404.html
-      # igual al index evita fallos si alguien entra por una URL profunda.
-      - name: Ajustes finales del sitio
-        working-directory: web/frontend/dist
         run: |
-          touch .nojekyll
-          cp index.html 404.html
+          REPO="${GITHUB_REPOSITORY#*/}"
+          if [[ "$REPO" == *.github.io ]]; then BASE="/"; else BASE="/$REPO/"; fi
+          echo "Compilando con VITE_BASE=$BASE"
+          VITE_BASE="$BASE" npm run build
+          touch dist/.nojekyll
 
-      - uses: actions/upload-pages-artifact@v3
+      # Red de seguridad: si la exportación fallara en silencio se publicaría
+      # una web en blanco. Mejor romper el despliegue aquí.
+      - name: Comprobar que el build lleva los datos
+        run: |
+          test -f web/frontend/dist/index.html
+          test -f web/frontend/dist/datos/estado.json
+          echo "JSON publicados: $(find web/frontend/dist/datos -name '*.json' | wc -l)"
+
+      - name: Configurar Pages
+        uses: actions/configure-pages@v6
+
+      - name: Subir el sitio como artefacto
+        uses: actions/upload-pages-artifact@v5
         with:
           path: web/frontend/dist
 
+  # -------------------------------------------------------------------
+  # 2) Desplegar el artefacto en Pages
+  # -------------------------------------------------------------------
   desplegar:
-    needs: construir
+    needs: compilar
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.despliegue.outputs.page_url }}
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Desplegar en GitHub Pages
+        id: despliegue
+        uses: actions/deploy-pages@v5
