@@ -10,6 +10,10 @@
 #      en vez de /api/...) y VITE_BASE=/<repo>/ (el sitio cuelga de un
 #      subdirectorio, no de la raíz del dominio).
 #
+# El proyecto puede estar en la raíz del repo o dentro de una subcarpeta
+# (ahora mismo, "Homomorphic Encription/"): el primer paso lo detecta, así que
+# no hay que tocar este fichero si se reorganiza el repositorio.
+#
 # Requisito único en el repo: Settings -> Pages -> Source = "GitHub Actions".
 # =====================================================================
 name: Desplegar la web en GitHub Pages
@@ -40,6 +44,22 @@ jobs:
       - name: Descargar el repositorio
         uses: actions/checkout@v6
 
+      # Localiza la carpeta que contiene web/ (la "raíz del proyecto"), esté en
+      # la raíz del repo o anidada. Deja la ruta en steps.raiz.outputs.proyecto.
+      - name: Localizar la raíz del proyecto
+        id: raiz
+        run: |
+          RUTA=$(find . -path ./.git -prune -o -path '*/web/exportar_estatico.py' -print | head -1)
+          if [ -z "$RUTA" ]; then
+            echo "::error::No encuentro web/exportar_estatico.py en el repositorio."
+            exit 1
+          fi
+          PROY=$(dirname "$(dirname "$RUTA")")   # .../web/exportar_estatico.py -> ...
+          PROY=${PROY#./}
+          [ -z "$PROY" ] && PROY="."
+          echo "proyecto=$PROY" >> "$GITHUB_OUTPUT"
+          echo "Proyecto detectado en: '$PROY'"
+
       - name: Preparar Python
         uses: actions/setup-python@v6
         with:
@@ -51,25 +71,27 @@ jobs:
       - name: Instalar dependencias de la exportación
         run: pip install "pandas>=2.2" "numpy>=2.0" fastapi
 
+      # El script deduce sus rutas de su propia ubicación, así que da igual
+      # desde dónde se invoque.
       - name: Exportar la BD a JSON estáticos
-        run: python web/exportar_estatico.py
+        run: python "${{ steps.raiz.outputs.proyecto }}/web/exportar_estatico.py"
 
       - name: Preparar Node
         uses: actions/setup-node@v6
         with:
-          node-version: '22'          # Vite 8 exige >=20.19 / >=22.12
+          node-version: '22'            # Vite 8 exige >=20.19 / >=22.12
           cache: npm
-          cache-dependency-path: web/frontend/package-lock.json
+          cache-dependency-path: '**/package-lock.json'
 
       - name: Instalar dependencias del frontend
-        working-directory: web/frontend
+        working-directory: ${{ steps.raiz.outputs.proyecto }}/web/frontend
         run: npm ci
 
       # VITE_BASE se deduce del nombre del repo para no tener que tocar nada si
       # se renombra. Caso especial: en un sitio de usuario (usuario.github.io)
       # la web cuelga de la raíz.
       - name: Compilar el frontend (modo estático)
-        working-directory: web/frontend
+        working-directory: ${{ steps.raiz.outputs.proyecto }}/web/frontend
         env:
           VITE_DATOS_ESTATICOS: '1'
         run: |
@@ -77,15 +99,19 @@ jobs:
           if [[ "$REPO" == *.github.io ]]; then BASE="/"; else BASE="/$REPO/"; fi
           echo "Compilando con VITE_BASE=$BASE"
           VITE_BASE="$BASE" npm run build
-          touch dist/.nojekyll
 
-      # Red de seguridad: si la exportación fallara en silencio se publicaría
-      # una web en blanco. Mejor romper el despliegue aquí.
-      - name: Comprobar que el build lleva los datos
+      # Se copia a una ruta fija de la raíz: evita pasar a las acciones de Pages
+      # una ruta con espacios ("Homomorphic Encription/…").
+      - name: Preparar el artefacto
         run: |
-          test -f web/frontend/dist/index.html
-          test -f web/frontend/dist/datos/estado.json
-          echo "JSON publicados: $(find web/frontend/dist/datos -name '*.json' | wc -l)"
+          rm -rf _sitio && mkdir _sitio
+          cp -R "${{ steps.raiz.outputs.proyecto }}/web/frontend/dist/." _sitio/
+          touch _sitio/.nojekyll
+          # Red de seguridad: si la exportación fallara en silencio se
+          # publicaría una web en blanco. Mejor romper el despliegue aquí.
+          test -f _sitio/index.html
+          test -f _sitio/datos/estado.json
+          echo "JSON publicados: $(find _sitio/datos -name '*.json' | wc -l)"
 
       - name: Configurar Pages
         uses: actions/configure-pages@v6
@@ -93,7 +119,7 @@ jobs:
       - name: Subir el sitio como artefacto
         uses: actions/upload-pages-artifact@v5
         with:
-          path: web/frontend/dist
+          path: _sitio
 
   # -------------------------------------------------------------------
   # 2) Desplegar el artefacto en Pages
