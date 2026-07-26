@@ -1,0 +1,100 @@
+# Publica el visualizador de resultados en GitHub Pages.
+#
+# La web es un frontend React que normalmente consume una API FastAPI. Como los
+# resultados son de SOLO LECTURA, aquí se precalculan a JSON estáticos
+# (web/exportar_estatico.py) y se compila el frontend en modo estático, de forma
+# que el sitio no necesita servidor Python.
+#
+# Se despliega en cada push a la rama principal que toque la web o los datos.
+
+name: Desplegar web en GitHub Pages
+
+on:
+  push:
+    branches: [main, Web]
+    paths:
+      - 'web/**'
+      - 'resultados/resultados.db'
+      - '.github/workflows/deploy-web.yml'
+  workflow_dispatch:        # permite lanzarlo a mano desde la pestaña Actions
+
+# Permisos que necesita el despliegue a Pages.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Un despliegue a la vez; no cancelar el que esté en curso.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  construir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Intenta activar Pages en modo "GitHub Actions" si aún no lo está. El
+      # GITHUB_TOKEN por defecto normalmente NO tiene permiso para activarlo, así
+      # que este paso puede fallar sin que eso deba tumbar la compilación: se marca
+      # continue-on-error. Si falla, hay que activarlo una vez a mano en
+      # Settings > Pages > Source: GitHub Actions.
+      - name: Preparar GitHub Pages
+        uses: actions/configure-pages@v5
+        continue-on-error: true
+        with:
+          enablement: true
+
+      - name: Preparar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      # Solo hacen falta las dependencias de LECTURA de la BD, no torch ni tenseal.
+      - name: Instalar dependencias mínimas
+        run: pip install pandas numpy fastapi
+
+      - name: Exportar los datos a JSON estáticos
+        run: python web/exportar_estatico.py
+
+      - name: Preparar Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web/frontend/package-lock.json
+
+      - name: Instalar dependencias del frontend
+        working-directory: web/frontend
+        run: npm ci
+
+      - name: Compilar el sitio estático
+        working-directory: web/frontend
+        env:
+          # El sitio cuelga de /<nombre-del-repo>/ en github.io
+          VITE_BASE: /${{ github.event.repository.name }}/
+          VITE_DATOS_ESTATICOS: '1'
+        run: npm run build
+
+      # GitHub Pages no sirve rutas que empiecen por _ ; además, un 404.html
+      # igual al index evita fallos si alguien entra por una URL profunda.
+      - name: Ajustes finales del sitio
+        working-directory: web/frontend/dist
+        run: |
+          touch .nojekyll
+          cp index.html 404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/frontend/dist
+
+  desplegar:
+    needs: construir
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
