@@ -1,15 +1,23 @@
 """
 ORQUESTACIÓN DEL ENTRENAMIENTO
 ==============================
-Monte Carlo cross-validation: entrena un modelo por semilla (remezclando
-train/val, con el test fijo), elige el de mejor accuracy de validación y lo
-reentrena con train+val. Guarda modelo, configuración, pesos iniciales, scaler
-y las gráficas de comparación de semillas e historial de entrenamiento.
+Submuestreo aleatorio repetido (Monte Carlo): entrena un modelo por semilla
+remezclando train/val, con el test fijo. El muestreo produce dos cosas:
+
+  - el modelo/semilla con mejor accuracy de validación, que fija la
+    inicialización de pesos del modelo definitivo;
+  - la MEDIANA de las épocas en que la pérdida de validación fue óptima, que es
+    el hiperparámetro que se transfiere al reentrenamiento final.
+
+Después se reentrena con train+val durante ese número fijo de épocas. Guarda
+modelo, configuración, pesos iniciales, scaler y las gráficas de comparación de
+semillas e historial de entrenamiento.
 """
 
 import copy
 import json
 import os
+import statistics
 from datetime import datetime
 
 import matplotlib.pyplot as plt
@@ -33,7 +41,9 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
         output_dir: carpeta donde guardar modelo, config, pesos y scaler.
 
     Returns:
-        (best_model, best_seed, best_test_dataset, results)
+        (best_model, best_seed, best_test_dataset, results, epocas_finales)
+        donde `epocas_finales` es la mediana de las épocas óptimas entre semillas,
+        que es la que se ha usado para el reentrenamiento con train+val.
     """
     # Almacenar resultados
     results = []
@@ -66,21 +76,23 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
                                                                             batch_size=32)
         
         trainer = Trainer(model=model, train_loader=train_loader, val_loader=val_loader, test_loader=test_loader,
-                                      scaler=processor.Scaler, learning_rate=learning_rate, rg=rg)
+                                      learning_rate=learning_rate, rg=rg)
         # Entrenar
         
         print(f"   Entrenando modelo {num_model}")
-        best_val_loss, final_val_acc = trainer.train(epochs=epochs, 
+        best_val_loss, final_val_acc, best_epoch = trainer.train(epochs=epochs,
                                                         early_stopping_patience=15,
                                                         verbose=False)
-            
-        print(f"   ✅ Completado modelo {num_model} - Val Accuracy: {final_val_acc:.2f}%")
-            
+
+        print(f"   ✅ Completado modelo {num_model} - Val Accuracy: {final_val_acc:.2f}% "
+              f"(época óptima: {best_epoch})")
+
         # Guardar resultados
         result = {
                 'seed': seed,
                 'val_accuracy': final_val_acc,
                 'val_loss': best_val_loss,
+                'best_epoch': best_epoch,
                 'train_history': {
                     'train_losses': trainer.train_losses,
                     'train_accuracies': trainer.train_accuracies,
@@ -111,12 +123,27 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
     
     for i, res in enumerate(results):
         marker = "🌟" if res['seed'] == best_seed else "  "
-        print(f"{marker} Semilla {res['seed']}: Val Acc = {res['val_accuracy']:.2f}%")
-    
+        print(f"{marker} Semilla {res['seed']}: Val Acc = {res['val_accuracy']:.2f}% "
+              f"(época óptima {res['best_epoch']})")
+
+    # Estadísticos del muestreo Monte Carlo. La media y la desviación describen
+    # la estabilidad del entrenamiento; el máximo es solo el criterio de selección
+    # y está sesgado al alza, así que no debe reportarse como rendimiento.
+    accs = [r['val_accuracy'] for r in results]
+    val_media = statistics.mean(accs)
+    val_desviacion = statistics.pstdev(accs) if len(accs) > 1 else 0.0
+
+    # Época del reentrenamiento: mediana entre semillas. Es más robusta que la
+    # época de la mejor semilla, que depende de una sola partición.
+    epocas = [r['best_epoch'] for r in results if r['best_epoch']]
+    epocas_finales = max(1, int(statistics.median(epocas))) if epocas else epochs
+
     print(f"\n✨ MEJOR MODELO:")
     print(f"   Semilla: {best_seed}")
     print(f"   Val Accuracy: {best_val_acc:.2f}%")
-    
+    print(f"\n📐 MUESTREO MONTE CARLO ({len(results)} semillas):")
+    print(f"   Val Accuracy media: {val_media:.2f}% ± {val_desviacion:.2f}")
+    print(f"   Épocas óptimas: {epocas} → mediana {epocas_finales}")
 
     print(f" REENTRENAMOS MEJOR MODELO CON TRAIN Y VAL SET")
 
@@ -131,9 +158,9 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
                                                                             batch_size=32)
         
     trainer = Trainer(model=model, train_loader=train_loader, val_loader=val_loader, test_loader=test_loader,
-                                      scaler=processor.Scaler, learning_rate=learning_rate, rg=rg)
+                                      learning_rate=learning_rate, rg=rg)
 
-    trainer.last_train()
+    trainer.last_train(epochs=epocas_finales)
     # Crear directorio de salida
     os.makedirs(output_dir, exist_ok=True)
     
@@ -146,7 +173,12 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
         'num_seeds_tried': len(seeds),
         'best_seed': best_seed,
         'best_val_accuracy': best_val_acc,
-        'all_results': [{'seed': r['seed'], 'val_accuracy': r['val_accuracy']} 
+        'val_accuracy_media': val_media,
+        'val_accuracy_desviacion': val_desviacion,
+        'epocas_optimas': epocas,
+        'epocas_reentrenamiento': epocas_finales,
+        'all_results': [{'seed': r['seed'], 'val_accuracy': r['val_accuracy'],
+                         'best_epoch': r['best_epoch']}
                        for r in results],
         'features' : pca_features,
     }
@@ -158,6 +190,7 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
     model_config = best_model.get_config()
     model_config['best_seed'] = best_seed
     model_config['best_val_accuracy'] = best_val_acc
+    model_config['epocas_reentrenamiento'] = epocas_finales
     
     with open(os.path.join(output_dir, 'model_config.json'), 'w') as f:
         json.dump(model_config, f, indent=2)
@@ -176,7 +209,7 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
     print(f"   • initial_weights.pth - Pesos iniciales del mejor modelo")
     print(f"   • scaler.pkl - Normalizador de datos")
 
-    return best_model, best_seed, best_test_dataset, results
+    return best_model, best_seed, best_test_dataset, results, epocas_finales
 
 
 def save_final_model_and_plots(model, seed, results, test_dataset, output_dir='experiment_results'):

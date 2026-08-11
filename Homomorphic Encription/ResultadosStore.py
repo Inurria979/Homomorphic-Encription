@@ -23,6 +23,7 @@ columna que falte en una BD antigua, así nunca se pierden datos anteriores.
 import json
 import os
 import sqlite3
+import statistics
 from datetime import datetime
 from glob import glob
 
@@ -66,6 +67,12 @@ _COLUMNAS_EXPERIMENTOS = {
     'n_total': 'INTEGER', 'n_train': 'INTEGER', 'n_val': 'INTEGER',
     'n_test': 'INTEGER', 'n_features_original': 'INTEGER',
     'distribucion_clases': 'TEXT', 'ratio_balance': 'REAL',
+    # Estadísticos del muestreo Monte Carlo
+    'val_accuracy_media': 'REAL', 'val_accuracy_desviacion': 'REAL',
+    'epocas_reentrenamiento': 'INTEGER',
+}
+_COLUMNAS_SEMILLAS = {
+    'epoca_optima': 'INTEGER',
 }
 _COLUMNAS_PREDICCIONES = {
     # ML
@@ -129,6 +136,9 @@ class ResultadosStore:
             num_semillas        INTEGER,
             mejor_semilla       INTEGER,
             mejor_val_accuracy  REAL,
+            val_accuracy_media  REAL,
+            val_accuracy_desviacion REAL,
+            epocas_reentrenamiento  INTEGER,
             n_total             INTEGER,
             n_train             INTEGER,
             n_val               INTEGER,
@@ -144,7 +154,8 @@ class ResultadosStore:
             experimento_id  INTEGER NOT NULL REFERENCES experimentos(id),
             semilla         INTEGER,
             val_accuracy    REAL,
-            val_loss        REAL
+            val_loss        REAL,
+            epoca_optima    INTEGER
         );
 
         CREATE TABLE IF NOT EXISTS predicciones (
@@ -241,7 +252,8 @@ class ResultadosStore:
     def _migrar(self):
         """Añade a bases de datos antiguas las columnas que les falten."""
         for tabla, nuevas in (('experimentos', _COLUMNAS_EXPERIMENTOS),
-                              ('predicciones', _COLUMNAS_PREDICCIONES)):
+                              ('predicciones', _COLUMNAS_PREDICCIONES),
+                              ('entrenamientos_semilla', _COLUMNAS_SEMILLAS)):
             existentes = set(self._columnas(tabla))
             for nombre, tipo in nuevas.items():
                 if nombre not in existentes:
@@ -271,17 +283,30 @@ class ResultadosStore:
                             arquitectura=None, pca_features=0, learning_rate=None,
                             regularizacion=0.0, num_semillas=None, mejor_semilla=None,
                             mejor_val_accuracy=None, semillas_resultados=None,
+                            epocas_reentrenamiento=None,
                             n_total=None, n_train=None, n_val=None, n_test=None,
                             n_features_original=None, distribucion_clases=None,
                             ratio_balance=None, fecha=None, notas=None, exportar=True):
         """
         Registra un experimento y sus semillas. Devuelve el id del experimento.
-        semillas_resultados: lista de dicts con 'seed', 'val_accuracy' y opc. 'val_loss'.
+        semillas_resultados: lista de dicts con 'seed', 'val_accuracy' y opc.
+        'val_loss' y 'best_epoch'.
+
+        La media y la desviación de la accuracy de validación se calculan aquí a
+        partir de las semillas: son los estadísticos del muestreo Monte Carlo y
+        describen la estabilidad del entrenamiento. `mejor_val_accuracy` es solo
+        el criterio de selección y está sesgado al alza, así que no debe usarse
+        como estimación de rendimiento.
         """
         if dataset_nombre is None and dataset_id is not None:
             dataset_nombre = DATASET_NOMBRES.get(dataset_id, f'UCI id {dataset_id}')
         if num_semillas is None and semillas_resultados:
             num_semillas = len(semillas_resultados)
+
+        accs = [a for a in (_num(r.get('val_accuracy'))
+                            for r in (semillas_resultados or [])) if a is not None]
+        val_media = statistics.mean(accs) if accs else None
+        val_desviacion = statistics.pstdev(accs) if len(accs) > 1 else (0.0 if accs else None)
 
         experimento_id = self._insertar('experimentos', {
             'fecha': fecha or datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -292,6 +317,9 @@ class ResultadosStore:
             'learning_rate': _num(learning_rate), 'regularizacion': _num(regularizacion),
             'num_semillas': _num(num_semillas, int), 'mejor_semilla': _num(mejor_semilla, int),
             'mejor_val_accuracy': _num(mejor_val_accuracy),
+            'val_accuracy_media': val_media,
+            'val_accuracy_desviacion': val_desviacion,
+            'epocas_reentrenamiento': _num(epocas_reentrenamiento, int),
             'n_total': _num(n_total, int), 'n_train': _num(n_train, int),
             'n_val': _num(n_val, int), 'n_test': _num(n_test, int),
             'n_features_original': _num(n_features_original, int),
@@ -303,6 +331,7 @@ class ResultadosStore:
             self._insertar('entrenamientos_semilla', {
                 'experimento_id': experimento_id, 'semilla': _num(res.get('seed'), int),
                 'val_accuracy': _num(res.get('val_accuracy')), 'val_loss': _num(res.get('val_loss')),
+                'epoca_optima': _num(res.get('best_epoch'), int),
             })
 
         self.conn.commit()
@@ -349,7 +378,10 @@ class ResultadosStore:
             pca_features=info.get('features', pca_features), learning_rate=learning_rate,
             regularizacion=regularizacion, num_semillas=info.get('num_seeds_tried'),
             mejor_semilla=config.get('best_seed'), mejor_val_accuracy=config.get('best_val_accuracy'),
-            semillas_resultados=[{'seed': r.get('seed'), 'val_accuracy': r.get('val_accuracy')}
+            epocas_reentrenamiento=(info.get('epocas_reentrenamiento')
+                                    or config.get('epocas_reentrenamiento')),
+            semillas_resultados=[{'seed': r.get('seed'), 'val_accuracy': r.get('val_accuracy'),
+                                  'best_epoch': r.get('best_epoch')}
                                  for r in info.get('all_results', [])],
             fecha=info.get('timestamp'),
             notas='Registrado a partir de los ficheros del directorio', exportar=exportar)

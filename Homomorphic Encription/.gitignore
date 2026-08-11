@@ -1,0 +1,43 @@
+# =====================================================================
+# Ficheros que NO van al repositorio.
+#
+# Los patrones no van anclados a la raíz a propósito: el proyecto vive en la
+# subcarpeta "Homomorphic Encription/", así que "__pycache__/" o "dist/"
+# coinciden a cualquier profundidad sin tener que escribir la ruta con espacio.
+#
+# OJO con lo que SÍ se versiona: resultados/resultados.db y resultados.xlsx
+# están commiteados a propósito. La BD es la fuente de la que el workflow de
+# GitHub Pages exporta los JSON de la web, así que no debe ignorarse nunca.
+# =====================================================================
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# --- Entornos virtuales ---
+.venv/
+venv/
+env/
+
+# --- Salidas de los experimentos ---
+# Modelos, gráficas y configuraciones que genera main.py / ejecutar_experimentos.py.
+# Se pueden regenerar entrenando; los resultados que importan ya están en la BD.
+experimentos_v2/
+salida_experimentos.log
+
+# --- Web: frontend ---
+node_modules/
+dist/
+# JSON precalculados por web/exportar_estatico.py (los regenera el workflow
+# de Pages en cada despliegue). Lleva "**/" porque un patrón CON barras se
+# ancla a la carpeta del .gitignore (la raíz) y no alcanzaría la subcarpeta
+# "Homomorphic Encription/".
+**/web/frontend/public/datos/
+
+# --- Sistema operativo y editores ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

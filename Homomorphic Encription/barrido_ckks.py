@@ -15,7 +15,7 @@ en función de esos parámetros.
 
 Igual que ejecutar_experimentos.py, cada corrida se lanza como un SUBPROCESO
 independiente y bloqueante (nunca en paralelo) con MALLOC_ARENA_MAX=2, para que
-el SO recupere la RAM entre corridas y no se desborde WSL.
+el SO recupere la RAM entre ejecuciones y no se desborde WSL.
 
 Uso (desde la raíz del repo, con el venv):
 
@@ -36,7 +36,12 @@ from configuracion_ckks import (generar_configuraciones, num_capas_lineales,
                                 GRADOS_POR_DEFECTO, ESCALAS_POR_DEFECTO,
                                 POLY_MODULUS_MAX)
 
-VENV_PYTHON = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".venv", "bin", "python")
+RAIZ = os.path.dirname(os.path.abspath(__file__))
+# El intérprete del entorno activo (el mismo que lanzó este script), igual que
+# en ejecutar_experimentos.py. Antes estaba cableado a .venv/bin/python, lo que
+# rompía todos los subprocesos si el entorno tenía otro nombre o otra ruta.
+VENV_PYTHON = sys.executable
+MAIN = os.path.join(RAIZ, "main.py")
 BASE_DIR = "experimentos_v2"
 
 # Redes de Breast Cancer sobre las que se barre el cifrado. Se incluyen redes
@@ -67,7 +72,7 @@ def configs_de_red(red, escalas):
 def cmd_entrenar(red, semilla):
     """Comando main.py que entrena + predice plana, SIN cifrado."""
     directorio = f"{BASE_DIR}/{red['nombre']}"
-    cmd = [VENV_PYTHON, "main.py", directorio, "--train", "--sin-homomorfica",
+    cmd = [VENV_PYTHON, MAIN, directorio, "--train", "--sin-homomorfica",
            "--dataset", str(red["dataset_id"]), "--model_size", str(red["model_size"]),
            "--nc", str(red["nc"]), "--pca", str(red["pca"]),
            "--rg", str(red["rg"]), "--semilla", str(semilla)]
@@ -81,7 +86,7 @@ def cmd_entrenar(red, semilla):
 def cmd_config(red, cfg, bz, nw, ram):
     """Comando main.py que ejecuta SOLO la homomórfica con una config CKKS."""
     directorio = f"{BASE_DIR}/{red['nombre']}"
-    cmd = [VENV_PYTHON, "main.py", directorio, "--solo-homomorfica",
+    cmd = [VENV_PYTHON, MAIN, directorio, "--solo-homomorfica",
            "--dataset", str(red["dataset_id"]), "--model_size", str(red["model_size"]),
            "--nc", str(red["nc"]), "--pca", str(red["pca"]), "--rg", str(red["rg"]),
            "--degree", str(cfg["grado"]),

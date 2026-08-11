@@ -1,9 +1,9 @@
 """
 PIPELINE PRINCIPAL
 ==================
-Punto de entrada de un experimento: entrena (opcional) con Monte Carlo
-cross-validation y evalúa el mejor modelo dos veces -en claro y sobre datos
-cifrados homomórficamente (TenSEAL/CKKS)-, guardando métricas de ML y de
+Punto de entrada de un experimento: entrena (opcional) con submuestreo aleatorio
+repetido de Monte Carlo y evalúa el modelo resultante dos veces -en claro y sobre
+datos cifrados homomórficamente (TenSEAL/CKKS)-, guardando métricas de ML y de
 sistema en la base de datos y el Excel.
 
 Uso: python main.py <carpeta> [--train] [--dataset ID] [--pca N] ...
@@ -32,9 +32,14 @@ from MonitorSistema import MonitorSistema
 from Metricas import distribucion_clases, ratio_balance
 
 
+# Tamaño del conjunto del que se extraen las semillas del muestreo Monte Carlo.
+# Solo acota el valor de las semillas; el número de entrenamientos lo fija --seeds.
+RANGO_SEMILLAS = 10_000
 
 
-def end_to_end(model_size=5, cv_type="MC", learning_rate=0.001, n_seeds=5, hidden_layers=[], num_classes=2, path="", dataset_id=17, pca_features=0,batch_size=0, num_workers=0, rg=0, train=False, dataset=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
+
+
+def end_to_end(model_size=5, learning_rate=0.001, n_seeds=50, hidden_layers=[], num_classes=2, path="", dataset_id=17, pca_features=0,batch_size=0, num_workers=0, rg=0, train=False, dataset=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
     """Construye el modelo según model_size y lanza el pipeline completo."""
     # Arquitecturas predefinidas para los dos casos más habituales; el resto
     # se construye a medida con hidden_layers/num_classes
@@ -51,20 +56,28 @@ def end_to_end(model_size=5, cv_type="MC", learning_rate=0.001, n_seeds=5, hidde
     if dataset is None:
         dataset = DataProcessor(dataset_id)
     store = ResultadosStore()
-    if cv_type == "MC":
-        end_to_end_mc(model, learning_rate, n_seeds,path, dataset, pca_features=pca_features ,batch_size=batch_size, num_workers=num_workers, rg=rg, train=train, store=store, fraccion_ram=fraccion_ram, solo_homomorfica=solo_homomorfica, sin_homomorfica=sin_homomorfica, ckks=ckks)
+    end_to_end_mc(model, learning_rate, n_seeds,path, dataset, pca_features=pca_features ,batch_size=batch_size, num_workers=num_workers, rg=rg, train=train, store=store, fraccion_ram=fraccion_ram, solo_homomorfica=solo_homomorfica, sin_homomorfica=sin_homomorfica, ckks=ckks)
 
 
 def end_to_end_mc(model, learning_rate, n_seeds, path, dataset, batch_size, num_workers, rg=0, pca_features=0, train = False, store=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
     """
-    Monte Carlo cross-validation + evaluación.
+    Submuestreo aleatorio repetido (Monte Carlo) + evaluación.
 
-    Con cada semilla se remezclan train y val (el test se mantiene intacto) y
-    se entrena un modelo; se elige el mejor por accuracy de validación y se
-    reentrena con train+val. Después se evalúa en claro y homomórficamente,
-    guardando experimento y predicciones en la BD/Excel.
+    Con cada semilla se remezclan train y val (el test se mantiene intacto) y se
+    entrena un modelo. El muestreo aporta dos cosas: la semilla de mejor accuracy
+    de validación, que fija la inicialización del modelo definitivo, y la mediana
+    de las épocas óptimas, que es el número de épocas del reentrenamiento con
+    train+val. Después se evalúa en claro y homomórficamente, guardando
+    experimento y predicciones en la BD/Excel.
     """
-    seeds = [random.randint(0, 1000) for _ in range(n_seeds)]
+    # Semillas SIN repetición: se extraen sin reemplazo. Con reemplazo se
+    # entrenarían modelos idénticos más de una vez, lo que desperdicia cómputo y
+    # sesga los estadísticos del muestreo (val_accuracy_media y
+    # val_accuracy_desviacion contarían el mismo modelo varias veces, de modo que
+    # la desviación saldría artificialmente baja).
+    # El rango se ensancha a n_seeds si hiciera falta, para no pedir nunca una
+    # muestra mayor que la población.
+    seeds = random.sample(range(max(RANGO_SEMILLAS, n_seeds)), n_seeds)
 
     # Información del dataset (tamaños y balance de clases) para guardar en la BD.
     # El split es fijo: 20% test, 10% val, 70% train sobre el total.
@@ -81,7 +94,7 @@ def end_to_end_mc(model, learning_rate, n_seeds, path, dataset, batch_size, num_
 
     experimento_id = None
     if train:
-        best_model, best_seed, best_test_dataset, results = train_with_multiple_seeds(model=model, processor=dataset,output_dir=path, learning_rate=learning_rate, seeds=seeds,
+        best_model, best_seed, best_test_dataset, results, epocas_finales = train_with_multiple_seeds(model=model, processor=dataset,output_dir=path, learning_rate=learning_rate, seeds=seeds,
                                 test_size=0.2, val_size=0.1, pca_features=pca_features, rg=rg)
 
         save_final_model_and_plots(
@@ -109,6 +122,7 @@ def end_to_end_mc(model, learning_rate, n_seeds, path, dataset, batch_size, num_
                 mejor_semilla=best_seed,
                 mejor_val_accuracy=max(r['val_accuracy'] for r in results),
                 semillas_resultados=results,
+                epocas_reentrenamiento=epocas_finales,
                 **info_dataset
             )
     elif store:
@@ -348,18 +362,14 @@ def main():
                         help="Ruta (carpeta) donde se guardarán los modelos, logs y resultados.")
 
     # Argumentos OPCIONALES con valores por defecto
-    parser.add_argument("--model_size", type=int, default=5, 
+    parser.add_argument("--model_size", type=int, default=5,
                         help="Componentes PCA / Tamaño de entrada (default: 5)")
-    #MC: MonteCarlo 
-    #KF: K-Fold no implementada
-    parser.add_argument("--cv_type", type=str, default="MC", choices=["MC", "KF"],
-                        help="MC (Monte Carlo) o KF (K-Fold) (default: MC)")
-    
+
     parser.add_argument("--lr", type=float, default=0.001, dest="learning_rate",
                         help="Learning rate (default: 0.001)")
     
-    parser.add_argument("--seeds", type=int, default=5, dest="n_seeds",
-                        help="Número de semillas/folds (default: 5)")
+    parser.add_argument("--seeds", type=int, default=50, dest="n_seeds",
+                        help="Número de semillas del muestreo Monte Carlo (default: 50)")
     
     parser.add_argument("--dataset", type=int, default=17, dest="dataset_id",
                         help="ID del dataset UCI: 17=Breast Cancer, 891=Diabetes, "
@@ -440,7 +450,6 @@ def main():
     
     end_to_end(
         model_size=args.model_size,
-        cv_type=args.cv_type,
         learning_rate=args.learning_rate,
         n_seeds=args.n_seeds,
         path=args.path,

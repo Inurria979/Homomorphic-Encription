@@ -32,6 +32,10 @@ erDiagram
         TEXT    arquitectura
         TEXT    hidden_layers "JSON"
         INTEGER mejor_semilla
+        REAL    mejor_val_accuracy "sesgado al alza"
+        REAL    val_accuracy_media "estadistico MC"
+        REAL    val_accuracy_desviacion "estadistico MC"
+        INTEGER epocas_reentrenamiento "mediana de epocas optimas"
         INTEGER n_total
         TEXT    distribucion_clases "JSON"
         REAL    ratio_balance
@@ -42,6 +46,7 @@ erDiagram
         INTEGER semilla
         REAL    val_accuracy
         REAL    val_loss
+        INTEGER epoca_optima "epoca de mejor val_loss"
     }
     predicciones {
         INTEGER id PK
@@ -71,7 +76,7 @@ erDiagram
 
 | Relación | Cardinalidad | Clave foránea | Significado |
 |----------|:------------:|---------------|-------------|
-| `experimentos` → `entrenamientos_semilla` | 1 : N | `entrenamientos_semilla.experimento_id` → `experimentos.id` | Cada experimento prueba N semillas (por defecto 5). |
+| `experimentos` → `entrenamientos_semilla` | 1 : N | `entrenamientos_semilla.experimento_id` → `experimentos.id` | Cada experimento prueba N semillas (por defecto 50). |
 | `experimentos` → `predicciones` | 1 : N | `predicciones.experimento_id` → `experimentos.id` | Cada experimento genera normalmente 2 predicciones (plana + homomórfica); en el **barrido CKKS** (`barrido_ckks.py`) hay **N homomórficas**, una por configuración de cifrado probada. NO hay restricción UNIQUE. |
 | `predicciones` → `metricas_clase` | 1 : N | `metricas_clase.prediccion_id` → `predicciones.id` | Cada predicción tiene una fila por clase (2 en binario, 7 en obesidad...). |
 
@@ -103,7 +108,10 @@ hiperparámetros y las características del dataset. Es la tabla "padre".
 | `regularizacion` | REAL | Regularización L2 (weight decay). |
 | `num_semillas` | INTEGER | Nº de semillas probadas en el Monte Carlo. |
 | `mejor_semilla` | INTEGER | Semilla del modelo ganador. |
-| `mejor_val_accuracy` | REAL | Accuracy de validación del mejor modelo (%). |
+| `mejor_val_accuracy` | REAL | Accuracy de validación del mejor modelo (%). Es el **criterio de selección**, por lo que está sesgado al alza: no debe usarse como estimación del rendimiento esperado (para eso están las dos columnas siguientes). |
+| `val_accuracy_media` | REAL | **Media** de la accuracy de validación entre todas las semillas (%). Estimador insesgado del rendimiento del muestreo Monte Carlo. |
+| `val_accuracy_desviacion` | REAL | **Desviación típica poblacional** de esa accuracy entre semillas (puntos porcentuales). Mide la estabilidad del entrenamiento frente a la partición train/val: valores altos indican que el resultado depende mucho de la semilla. |
+| `epocas_reentrenamiento` | INTEGER | Épocas **fijas** del reentrenamiento final con train+val. Es la **mediana** de las épocas óptimas de las semillas (`entrenamientos_semilla.epoca_optima`); se usa la mediana por ser robusta frente a semillas atípicas. |
 | `n_total` | INTEGER | Nº total de muestras del dataset (tras el cap de 20 000). |
 | `n_train` | INTEGER | Muestras de entrenamiento (~70 %). |
 | `n_val` | INTEGER | Muestras de validación (~10 %). |
@@ -127,6 +135,7 @@ varió la calidad del modelo entre las distintas semillas del Monte Carlo.
 | `semilla` | INTEGER | Valor de la semilla. |
 | `val_accuracy` | REAL | Accuracy de validación con esa semilla (%). |
 | `val_loss` | REAL | Pérdida de validación con esa semilla. |
+| `epoca_optima` | INTEGER | Época (1-indexada) en la que la pérdida de validación fue mínima, es decir, el estado que restaura el early stopping. La mediana de esta columna entre las semillas de un experimento fija `experimentos.epocas_reentrenamiento`. |
 
 ---
 
@@ -282,9 +291,29 @@ rendimiento clase a clase, útil sobre todo en multiclase (obesidad, 7 clases).
 - **Enlace lógico por `directorio`:** cuando se evalúa sin reentrenar, el
   experimento se recupera (o reconstruye) buscando por el campo `directorio`,
   que se normaliza al nombre base de la carpeta.
+- **Estadísticos del muestreo Monte Carlo:** el entrenamiento prueba N semillas y
+  se queda con la mejor por accuracy de validación. Como esa selección introduce
+  un sesgo optimista, la BD guarda además la **media** y la **desviación típica**
+  entre semillas (`val_accuracy_media`, `val_accuracy_desviacion`), que son los
+  estadísticos que describen de verdad el rendimiento y su estabilidad.
+- **Épocas del reentrenamiento final:** el modelo ganador se reentrena con
+  train+val, conjunto en el que ya no queda validación con la que aplicar early
+  stopping. Para no detenerse por la pérdida de *entrenamiento* (que siempre
+  baja, lo que llevaría a sobreajustar), el número de épocas se fija de antemano
+  a la **mediana** de las épocas óptimas observadas en el muestreo
+  (`entrenamientos_semilla.epoca_optima` → `experimentos.epocas_reentrenamiento`).
+- **Sin restricción UNIQUE en `directorio`:** volver a ejecutar un experimento
+  inserta una **fila nueva** en `experimentos` en lugar de actualizar la
+  existente, de modo que el histórico se conserva. Por eso puede haber varios
+  registros con el mismo `directorio`. Conviene tenerlo presente al explotar los
+  datos: tanto la comparativa de la web como la del Excel agrupan por
+  `experimentos.id`, no por `directorio`, así que cada re-ejecución aparece como
+  una entrada independiente. Para quedarse solo con la última de cada directorio
+  hay que filtrar explícitamente (`MAX(id) GROUP BY directorio`).
 - **Migración automática:** al abrir una BD antigua, `ResultadosStore._migrar`
   añade con `ALTER TABLE` cualquier columna que falte, sin perder los datos
   existentes. Por eso registros antiguos pueden tener a NULL las columnas de
-  métricas añadidas después.
+  métricas añadidas después (es el caso de las cuatro columnas de épocas y
+  estadísticos, ausentes en los experimentos anteriores a su introducción).
 - **Portabilidad:** se usa SQL estándar; el esquema es trasladable a
   MySQL/PostgreSQL si en el futuro se define una base de datos de servidor.

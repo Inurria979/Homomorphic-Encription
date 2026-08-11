@@ -285,7 +285,7 @@ export default function App() {
         <div className="method">
           <p>
             Cada experimento entrena una red <code>ConfigurableNN</code> con validación cruzada
-            Monte Carlo (5 semillas), se queda con el mejor modelo y lo evalúa sobre un test fijo
+            Monte Carlo, se queda con el mejor modelo y lo evalúa sobre un test fijo
             dos veces: en claro y cifrado. El split de test usa una semilla maestra fija, así que
             ambas modalidades ven exactamente las mismas muestras.
           </p>

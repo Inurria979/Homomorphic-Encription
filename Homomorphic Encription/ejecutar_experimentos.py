@@ -1,10 +1,7 @@
 """
 BATERÍA DE EXPERIMENTOS
 =======================
-Repite los experimentos históricos (con los bugs ya corregidos: la regularización
-se aplica de verdad, el early stopping restaura el mejor estado, y las semillas
-hacen reproducibles tanto el split como la inicialización de pesos) y añade
-algunos nuevos.
+Repite los experimentos históricos
 
 Cada experimento hace: entrenamiento multi-semilla -> predicción plana ->
 predicción homomórfica, y guarda todo en resultados/resultados.db y
@@ -130,7 +127,7 @@ def construir_comando(exp, path, batch_size, num_workers, fraccion_ram, semilla_
         '--pca', str(exp.get('pca', 0)),
         '--rg', str(exp.get('rg', 0)),
         '--lr', str(exp.get('lr', 0.001)),
-        '--seeds', str(exp.get('n_seeds', 5)),
+        '--seeds', str(exp.get('n_seeds', 50)),
         '--bz', str(batch_size),
         '--nw', str(num_workers),
         '--ram', str(fraccion_ram),

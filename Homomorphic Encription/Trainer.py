@@ -75,18 +75,18 @@ class ConfigurableNN(nn.Module):
 
 class Trainer:
 
-    def __init__(self, model, train_loader, val_loader, test_loader, scaler, learning_rate=0.001, rg=0):
+    def __init__(self, model, train_loader, val_loader, test_loader, learning_rate=0.001, rg=0):
         self.model = model
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.test_loader = test_loader
-        self.scaler = scaler
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
         # Mover el modelo al dispositivo ANTES de crear el optimizador, para que
         # el optimizador tome como referencia los parámetros ya ubicados
         self.model.to(self.device)
 
+        # CrossEntropyLoss = LogSoftmax + NLLLoss (espera logits crudos)
         self.criterion = nn.CrossEntropyLoss()
         # weight_decay = regularización L2 (parámetro rg)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=rg)
@@ -146,6 +146,7 @@ class Trainer:
         """Entrena el modelo con early stopping"""
         best_val_loss = float('inf')
         best_val_acc = 0
+        best_epoch = 0
         patience_counter = 0
         best_state = None
 
@@ -167,6 +168,9 @@ class Trainer:
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
                 best_val_acc = val_acc
+                # Época (1-indexada) en la que la validación fue óptima: es el
+                # hiperparámetro que el reentrenamiento final reutiliza
+                best_epoch = epoch + 1
                 best_state = copy.deepcopy(self.model.state_dict())
                 patience_counter = 0
             else:
@@ -181,48 +185,37 @@ class Trainer:
             self.model.load_state_dict(best_state)
 
         # Devolvemos la accuracy de la época con mejor val_loss (la del estado
-        # restaurado), no la de la última época
-        return best_val_loss, best_val_acc
+        # restaurado), no la de la última época, junto con esa época
+        return best_val_loss, best_val_acc, best_epoch
 
-    def last_train(self, epochs=100, early_stopping_patience=15, verbose=True):
+    def last_train(self, epochs, verbose=True):
         """
-        Reentrena el mejor modelo usando train + validación juntos (ya no se
-        reserva validación: el conjunto de test sigue intacto). Early stopping
-        sobre la pérdida de entrenamiento.
-        """
-        best_train_loss = float('inf')
-        patience_counter = 0
-        best_state = None
+        Reentrena el modelo con train + validación juntos durante un número FIJO
+        de épocas (el conjunto de test sigue intacto).
 
-        # 1. Accedemos a los Datasets originales dentro de tus loaders
+        `epochs` procede del muestreo Monte Carlo: es la mediana de las épocas en
+        las que la pérdida de validación fue óptima a lo largo de las semillas.
+        No se hace early stopping aquí: al fusionar validación con entrenamiento
+        ya no queda ningún conjunto sobre el que medir generalización, y parar por
+        la pérdida de entrenamiento no es un criterio válido (esa pérdida casi
+        siempre decrece, así que agotaría las épocas disponibles). El modelo final
+        es el de la última época; no se restaura ningún estado intermedio.
+        """
+        # 1. Accedemos a los Datasets originales dentro de los loaders
         full_dataset = ConcatDataset([self.train_loader.dataset, self.val_loader.dataset])
-        
+
         # 2. Creamos el cargador definitivo con TODOS los datos
         self.train_loader = DataLoader(
-            full_dataset, 
-            batch_size=self.train_loader.batch_size, 
+            full_dataset,
+            batch_size=self.train_loader.batch_size,
             shuffle=True
         )
-        
-        for epoch in range(1, epochs+1):
+
+        print(f"   Reentrenando con train+val ({len(full_dataset)} muestras) "
+              f"durante {epochs} épocas fijas")
+
+        for epoch in range(1, epochs + 1):
             train_loss, train_acc = self.train_epoch()
-            if verbose:
-                if epoch % 10 == 0:
-                    print(f'Iteración {epoch} del entrenamiento final')
-                    print(f"Pérdida de entrenamiento {train_loss}")
-                    print(f"Acc de entrenamiendo {train_acc}")
-            
-            # Early stopping
-            if train_loss < best_train_loss:
-                best_train_loss = train_loss
-                best_state = copy.deepcopy(self.model.state_dict())
-                patience_counter = 0
-            else:
-                patience_counter += 1
-                if patience_counter >= early_stopping_patience:
-                    if verbose:
-                        print(f"      Early stopping en época {epoch+1}")
-                    break
-        # Cargar mejor modelo
-        if best_state is not None:
-            self.model.load_state_dict(best_state)
+            if verbose and epoch % 10 == 0:
+                print(f'   Época {epoch}/{epochs} del entrenamiento final - '
+                      f'Pérdida {train_loss:.4f}, Acc {train_acc:.2f}%')

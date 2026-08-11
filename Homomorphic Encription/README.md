@@ -106,7 +106,7 @@ entradas (los componentes PCA) y 2 salidas (benigno / maligno).
 ```
    [1] Carga y limpieza del dataset (UCI id 17)
         └─ split estratificado: 70% train / 10% val / 20% test
-   [2] Entrenamiento Monte Carlo (5 semillas)
+   [2] Entrenamiento Monte Carlo (50 semillas por defecto, --seeds)
         └─ por cada semilla se remezcla train/val (el test queda intacto),
            se entrena con early stopping y se mide la accuracy de validación
         └─ se elige la mejor semilla y se reentrena con train+val

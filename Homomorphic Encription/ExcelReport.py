@@ -101,13 +101,16 @@ SQL_EXPERIMENTOS = """
            input_size, hidden_layers, num_clases, pca_features, learning_rate,
            regularizacion, num_semillas, mejor_semilla,
            mejor_val_accuracy AS mejor_val_accuracy_pct,
+           val_accuracy_media AS val_accuracy_media_pct,
+           val_accuracy_desviacion AS val_accuracy_desviacion_pct,
+           epocas_reentrenamiento,
            n_total, n_train, n_val, n_test, n_features_original,
            distribucion_clases, ratio_balance, notas
     FROM experimentos ORDER BY id"""
 
 SQL_SEMILLAS = """
     SELECT s.id, s.experimento_id, e.dataset_nombre, e.directorio,
-           s.semilla, s.val_accuracy AS val_accuracy_pct, s.val_loss
+           s.semilla, s.val_accuracy AS val_accuracy_pct, s.val_loss, s.epoca_optima
     FROM entrenamientos_semilla s
     LEFT JOIN experimentos e ON e.id = s.experimento_id
     ORDER BY s.experimento_id, s.id"""
