@@ -77,7 +77,7 @@ erDiagram
 | Relación | Cardinalidad | Clave foránea | Significado |
 |----------|:------------:|---------------|-------------|
 | `experimentos` → `entrenamientos_semilla` | 1 : N | `entrenamientos_semilla.experimento_id` → `experimentos.id` | Cada experimento prueba N semillas (por defecto 50). |
-| `experimentos` → `predicciones` | 1 : N | `predicciones.experimento_id` → `experimentos.id` | Cada experimento genera normalmente 2 predicciones (plana + homomórfica); en el **barrido CKKS** (`barrido_ckks.py`) hay **N homomórficas**, una por configuración de cifrado probada. NO hay restricción UNIQUE. |
+| `experimentos` → `predicciones` | 1 : N | `predicciones.experimento_id` → `experimentos.id` | Cada experimento genera normalmente 2 predicciones (plana + homomórfica); en las redes con **barrido CKKS** (`ejecutar_experimentos.py`) hay **N homomórficas**, una por configuración de cifrado probada. NO hay restricción UNIQUE. |
 | `predicciones` → `metricas_clase` | 1 : N | `metricas_clase.prediccion_id` → `predicciones.id` | Cada predicción tiene una fila por clase (2 en binario, 7 en obesidad...). |
 
 - Las claves primarias son siempre `id INTEGER PRIMARY KEY AUTOINCREMENT`.

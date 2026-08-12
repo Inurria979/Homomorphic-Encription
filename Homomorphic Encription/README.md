@@ -228,26 +228,28 @@ Características importantes:
 
 ## 🔧 Barrido de parámetros CKKS
 
-Además de afinar la parte de ML, se puede afinar el **cifrado**. `barrido_ckks.py`
-barre —**solo en Breast Cancer**, que es rápido— la parte de cifrado: para cada
-red entrena **una vez** y evalúa la predicción homomórfica con varias
-configuraciones CKKS. Se barre el **grado del polinomio** ∈ {3, 5, 7} × la
-**escala** ∈ {25, 31, 40} bits; la cadena de módulos y el `poly_modulus_degree`
+Además de afinar la parte de ML, se afina el **cifrado**, y lo hace la propia
+batería: las redes marcadas con `barrido=True` en `ejecutar_experimentos.py`
+evalúan la predicción homomórfica con varias configuraciones CKKS sobre el
+**mismo modelo ya entrenado**. Se barre el **grado del polinomio** ∈ {3, 5, 7} ×
+la **escala** ∈ {25, 31, 40} bits; la cadena de módulos y el `poly_modulus_degree`
 se **derivan de la profundidad** de la red (redes llanas → `poly` pequeño y cadena
 corta; profundas → mayores), en `configuracion_ckks.py`.
 
 ```bash
-.venv/bin/python barrido_ckks.py --listar      # ver el plan y nº de subprocesos
-.venv/bin/python barrido_ckks.py               # ejecutarlo (subprocesos aislados)
-.venv/bin/python barrido_ckks.py --rapido      # subconjunto corto de validación
-.venv/bin/python barrido_ckks.py CKKS_BC_Full30   # solo una(s) red(es)
-.venv/bin/python barrido_ckks.py --continuar    # reanudar (salta lo ya entrenado)
+.venv/bin/python ejecutar_experimentos.py --listar        # plan completo, red a red
+.venv/bin/python ejecutar_experimentos.py --sin-barrido   # solo las corridas base
+.venv/bin/python ejecutar_experimentos.py --solo-barrido  # solo la rejilla, sin reentrenar
+.venv/bin/python ejecutar_experimentos.py --continuar     # reanudar (salta lo ya guardado)
 ```
 
-Cada red produce **1 predicción plana + N homomórficas**, todas en la BD con sus
-propios parámetros CKKS (grado, escala, cadena, `poly`) y con el **polinomio
-ajustado** que se usó (rango de activación medido + coeficientes). Así se puede
-comparar el coste (tiempo, RAM, precisión) en función de esos parámetros.
+Cada red con barrido produce **1 predicción plana + N homomórficas**, todas en la
+BD con sus propios parámetros CKKS (grado, escala, cadena, `poly`) y con el
+**polinomio ajustado** que se usó (rango de activación medido + coeficientes). Así
+se puede comparar el coste (tiempo, RAM, precisión) en función de esos parámetros.
+En esas redes la corrida base entrena y predice en claro pero no cifra: su
+configuración automática ya forma parte de la rejilla, así que cifrarla ahí sería
+repetir una corrida que puede durar horas.
 
 **El resto de datasets NO se barren** (Diabetes tardaría días): usan una única
 **configuración óptima** derivada analíticamente de la profundidad de la red
@@ -376,7 +378,7 @@ para que la predicción cifrada no dure días.
 | Fichero | Responsabilidad |
 |---------|-----------------|
 | `main.py` | Punto de entrada de un experimento (entrenar + predecir plana + homomórfica). |
-| `ejecutar_experimentos.py` | Orquesta la batería completa (subprocesos aislados). |
+| `ejecutar_experimentos.py` | Orquesta la batería completa y el barrido CKKS (subprocesos aislados). |
 | `DataProcessor.py` | Descarga/limpia datasets de UCI, split y DataLoaders. |
 | `Trainer.py` | Red `ConfigurableNN` + entrenamiento con early stopping. |
 | `scripts.py` | Monte Carlo cross-validation + guardado de modelo y gráficas. |
@@ -385,7 +387,6 @@ para que la predicción cifrada no dure días.
 | `PrediccionHomomorfica.py` | Inferencia cifrada (todo el test de una vez); ajusta el polinomio de la ReLU al rango real. |
 | `PrediccionHomomorficaParalela.py` | Inferencia cifrada por lotes en paralelo, con control de RAM. |
 | `configuracion_ckks.py` | Deriva la configuración CKKS de la profundidad de la red (cadena, `poly`, escala) + `config_optima`. |
-| `barrido_ckks.py` | Barre parámetros CKKS (grado × escala) en Breast Cancer, aislado por subprocesos. |
 | `docs/afinado_cifrado_ckks.md` | Justificación del afinado del cifrado (pesos, pre-activaciones, polinomio, CKKS). |
 | `docs/incidente_ram_ckks_N32768.md` | Análisis del agotamiento de RAM con `poly_modulus_degree` 32768 y su corrección. |
 | `Metricas.py` | Cálculo exhaustivo de métricas de ML. |
