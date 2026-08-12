@@ -6,7 +6,9 @@ RED NEURONAL Y ENTRENAMIENTO
   la ReLU se sustituye por un polinomio ajustado a su rango real (ver
   PrediccionHomomorfica).
 - Trainer: entrenamiento con early stopping. NO usa el conjunto de test durante
-  el entrenamiento/validación (se reserva para la evaluación final).
+  el entrenamiento/validación (se reserva para la evaluación final). Al terminar
+  el reentrenamiento mide el rango sobre el que hay que aproximar la ReLU en el
+  cifrado, que se publica junto a los pesos.
 Sirve para cualquiera de los datasets del proyecto, no solo Breast Cancer.
 """
 
@@ -15,6 +17,7 @@ import copy
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, ConcatDataset
+
 
 class ConfigurableNN(nn.Module):
     """
@@ -91,6 +94,9 @@ class Trainer:
         # weight_decay = regularización L2 (parámetro rg)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=rg)
         
+        # Rango de pre-activaciones medido al final de last_train
+        self.rango_preactivaciones = None
+
         # Historial de métricas
         self.train_losses = []
         self.train_accuracies = []
@@ -188,6 +194,47 @@ class Trainer:
         # restaurado), no la de la última época, junto con esa época
         return best_val_loss, best_val_acc, best_epoch
 
+    def medir_rango_preactivaciones(self):
+        """
+        Mide el rango [a, b] de las pre-activaciones (las entradas a cada ReLU)
+        propagando en claro los datos de entrenamiento por el modelo.
+
+        Es el rango sobre el que hay que aproximar la ReLU en el cifrado. NO es
+        [-1, 1]: aunque los pesos rondan [-1, 1], la pre-activación z = Σ wᵢxᵢ + b
+        suma sobre 12-30 entradas (fan-in) y las features van estandarizadas
+        (~[-6, 8]), así que z alcanza ±8…±15 en las redes del proyecto.
+
+        La capa de salida (classifier) no lleva activación, por eso solo se
+        instrumentan las capas ocultas del modelo. Devuelve None si no hay capas
+        ocultas: sin activación no hay nada que aproximar.
+        """
+        if not self.model.layers:
+            return None
+
+        minimos, maximos = [], []
+
+        def hook(_modulo, _entrada, salida):
+            # Sin valor de retorno: lo que devuelve un forward hook sustituiría a
+            # la salida de la capa
+            minimos.append(float(salida.min()))
+            maximos.append(float(salida.max()))
+
+        handles = [capa.register_forward_hook(hook) for capa in self.model.layers]
+        estaba_entrenando = self.model.training
+        self.model.eval()
+        try:
+            with torch.no_grad():
+                for batch_X, _ in self.train_loader:
+                    self.model(batch_X.to(self.device))
+        finally:
+            for h in handles:
+                h.remove()
+            self.model.train(estaba_entrenando)
+
+        if not minimos:
+            return None
+        return min(minimos), max(maximos)
+
     def last_train(self, epochs, verbose=True):
         """
         Reentrena el modelo con train + validación juntos durante un número FIJO
@@ -200,6 +247,11 @@ class Trainer:
         la pérdida de entrenamiento no es un criterio válido (esa pérdida casi
         siempre decrece, así que agotaría las épocas disponibles). El modelo final
         es el de la última época; no se restaura ningún estado intermedio.
+
+        Al terminar mide el rango de las pre-activaciones sobre esos mismos datos
+        (con los pesos ya definitivos) y lo devuelve: es el intervalo en el que
+        PrediccionHomomorfica ajusta el polinomio que sustituye a la ReLU, y viaja
+        con el modelo en model_config.json igual que los pesos y los sesgos.
         """
         # 1. Accedemos a los Datasets originales dentro de los loaders
         full_dataset = ConcatDataset([self.train_loader.dataset, self.val_loader.dataset])
@@ -219,3 +271,14 @@ class Trainer:
             if verbose and epoch % 10 == 0:
                 print(f'   Época {epoch}/{epochs} del entrenamiento final - '
                       f'Pérdida {train_loss:.4f}, Acc {train_acc:.2f}%')
+
+        self.rango_preactivaciones = self.medir_rango_preactivaciones()
+
+        if verbose:
+            if self.rango_preactivaciones is None:
+                print("   Red sin capas ocultas: no hay rango de pre-activaciones")
+            else:
+                a, b = self.rango_preactivaciones
+                print(f"   Rango de pre-activaciones (train+val): [{a:.2f}, {b:.2f}]")
+
+        return self.rango_preactivaciones

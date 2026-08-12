@@ -52,10 +52,12 @@ class Prediccion:
                 "Asegúrate de entrenar primero (main.py con --train)."
             )
         
-        # Cargar configuración
+        # Cargar configuración (se conserva en self.config: las subclases leen de
+        # ella parámetros del modelo, como el rango de pre-activaciones)
         with open(config_path, 'r') as f:
             config = json.load(f)
-        
+        self.config = config
+
         if self.verbose:
             print(f"   Arquitectura: {config['architecture']}")
             print(f"   Mejor semilla usada: {config['best_seed']}")

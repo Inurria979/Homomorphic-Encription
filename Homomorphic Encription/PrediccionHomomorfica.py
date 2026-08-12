@@ -5,7 +5,10 @@ Ejecuta la red neuronal COMPLETA sobre datos cifrados con TenSEAL (esquema
 CKKS): cifra el test, propaga por las capas lineales sobre el cifrado usando
 una aproximación polinómica de la ReLU (ajustada por mínimos cuadrados al rango
 real de las pre-activaciones, ver _coeficientes_relu), y solo descifra el
-resultado final. Así el servidor que infiere nunca ve los datos en claro.
+resultado final. Así el servidor que infiere nunca ve los datos en claro: el
+rango sobre el que se ajusta el polinomio no se mide aquí, viene medido sobre
+train+val desde el entrenamiento (Trainer.last_train) y se lee de
+model_config.json, igual que el resto de parámetros del modelo.
 
 Esta clase procesa todo el test de una vez (apropiado para datasets pequeños);
 para los grandes se usa PrediccionHomomorficaParalela.
@@ -15,7 +18,6 @@ import numpy as np
 
 from Prediccion import Prediccion
 import tenseal as ts
-import torch
 import torch.nn as nn
 
 
@@ -41,17 +43,16 @@ class PrediccionHomomorfica(Prediccion):
                 self.pesos_lista.append(layer.weight.T.detach().tolist()) 
                 self.biases_lista.append(layer.bias.detach().tolist())
         
-        # Aproximación polinómica de la ReLU AJUSTADA AL RANGO REAL de las
-        # pre-activaciones (no a [-1,1] fijo). Ver _medir_rango_preactivaciones y
-        # _coeficientes_relu: por el fan-in y las features estandarizadas el rango
-        # real es mucho más ancho que [-1,1], así que fijar el ajuste en [-1,1]
-        # hacía que el polinomio extrapolara sin control.
+        # 3. Aproximación polinómica de la ReLU AJUSTADA AL RANGO REAL de las
+        # pre-activaciones (no a [-1,1] fijo): por el fan-in y las features
+        # estandarizadas ese rango es mucho más ancho que [-1,1], y un polinomio
+        # ajustado en [-1,1] se evaluaría fuera de su dominio (extrapolación).
         if degree == "sqt":
             # Activación cuadrada pura (no es ReLU): coeficientes fijos x^2.
             self.rango_activacion = None
             self.taylor_coeffs = [0.0, 0.0, 1.0]
         else:
-            self.rango_activacion = self._medir_rango_preactivaciones()
+            self.rango_activacion = self._leer_rango_preactivaciones()
             # Red sin capas ocultas: no hay activación en el cifrado -> sin polinomio.
             self.taylor_coeffs = (self._coeficientes_relu(degree, self.rango_activacion)
                                   if self.rango_activacion is not None else None)
@@ -117,36 +118,30 @@ class PrediccionHomomorfica(Prediccion):
 
         return enc_x
 
-    def _medir_rango_preactivaciones(self):
+    def _leer_rango_preactivaciones(self):
         """
-        Mide el rango [a, b] de las pre-activaciones (las entradas a cada ReLU)
-        con una pasada EN CLARO del modelo sobre el test.
+        Devuelve el rango [a, b] de las pre-activaciones sobre el que ajustar el
+        polinomio, leído de model_config.json.
 
-        Es el rango sobre el que hay que aproximar la ReLU. NO es [-1, 1]: aunque
-        los pesos rondan [-1, 1], la pre-activación z = Σ wᵢxᵢ + b suma sobre 12-30
-        entradas (fan-in) y las features van estandarizadas (~[-6, 8]), así que z
-        alcanza ±8…±15 en las redes del proyecto. Ajustar el polinomio solo en
-        [-1, 1] hacía que se evaluara muy fuera de su rango (extrapolación).
+        Lo mide Trainer.last_train sobre train+val con los pesos ya definitivos, y
+        acompaña al modelo como un parámetro más: quien infiere sobre el cifrado no
+        necesita ver ningún dato en claro para reconstruir la activación. El rango
+        se midió con la ReLU real y el polinomio la aproxima sobre [a, b], así que
+        sigue siendo válido en la inferencia cifrada.
 
-        Se propaga con la ReLU real; como el polinomio ajustado ≈ ReLU sobre [a, b],
-        el rango sigue siendo válido en la inferencia cifrada. La capa de salida
-        (self.classifier) no lleva activación, por eso solo se instrumentan las
-        capas ocultas de self.model.layers. Devuelve None si no hay capas ocultas.
+        Devuelve None si la red no tiene capas ocultas: no hay activación que
+        aproximar.
         """
-        preactivaciones = []
-        handles = [capa.register_forward_hook(
-            lambda _m, _e, salida: preactivaciones.append(salida.detach()))
-            for capa in self.model.layers]
-        try:
-            with torch.no_grad():
-                self.model(self.X_test)
-        finally:
-            for h in handles:
-                h.remove()
-        if not preactivaciones:            # red sin capas ocultas: no hay ReLU
+        rango = self.config.get('rango_preactivaciones')
+        if rango is None:
+            if self.model.hidden_layers:
+                raise ValueError(
+                    "model_config.json no incluye 'rango_preactivaciones' y la red "
+                    "tiene capas ocultas: vuelve a entrenar el modelo para medirlo."
+                )
             return None
-        z = torch.cat([p.reshape(-1) for p in preactivaciones])
-        return float(z.min()), float(z.max())
+        a, b = rango
+        return float(a), float(b)
 
     def _coeficientes_relu(self, degree, rango):
         """

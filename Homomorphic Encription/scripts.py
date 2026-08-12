@@ -160,7 +160,7 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
     trainer = Trainer(model=model, train_loader=train_loader, val_loader=val_loader, test_loader=test_loader,
                                       learning_rate=learning_rate, rg=rg)
 
-    trainer.last_train(epochs=epocas_finales)
+    rango_preactivaciones = trainer.last_train(epochs=epocas_finales)
     # Crear directorio de salida
     os.makedirs(output_dir, exist_ok=True)
     
@@ -191,6 +191,11 @@ def train_with_multiple_seeds(model, processor, seeds, test_size, val_size, pca_
     model_config['best_seed'] = best_seed
     model_config['best_val_accuracy'] = best_val_acc
     model_config['epocas_reentrenamiento'] = epocas_finales
+    # Intervalo en el que PrediccionHomomorfica ajusta el polinomio que sustituye
+    # a la ReLU: se mide sobre train+val con los pesos definitivos y se publica
+    # con el modelo (None si la red no tiene capas ocultas)
+    model_config['rango_preactivaciones'] = (list(rango_preactivaciones)
+                                             if rango_preactivaciones else None)
     
     with open(os.path.join(output_dir, 'model_config.json'), 'w') as f:
         json.dump(model_config, f, indent=2)
