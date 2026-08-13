@@ -59,7 +59,13 @@ POLY_MODULUS_CANDIDATOS = [8192, 16384, 32768]
 # las 3 configuraciones de escala 40 abortaron por `PresupuestoRAMExcedido` tras
 # 6 h de espera cada una (ver docs/incidente_ram_ckks_N32768.md y docs/logs/).
 # Con este tope, esas configuraciones se descartan ANTES de lanzarlas.
-# En una máquina con más RAM, subir a 32768 para volver a explorarlas.
+#
+# ACTUALIZACIÓN: la parte que hacía inviable N=32768 eran las CLAVES DE GALOIS,
+# que ya no se generan (la inferencia usa CKKSTensor con mm y polyval, que no
+# rotan y por tanto no las necesitan). Medido al quitarlas: el pico de RAM de la
+# red 30->16->8->2 baja de 4.09 a 2.68 GB y el contexto se crea en 1 s en vez de
+# 13 s. El tope se mantiene en 16384 como valor por defecto prudente; se puede
+# levantar por parámetro (poly_max) cuando la red lo justifique.
 POLY_MODULUS_MAX = 16384
 
 # Escala mínima (bits) por poly_modulus_degree. SEAL exige que cada primo de la

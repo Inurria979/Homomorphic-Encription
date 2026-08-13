@@ -24,7 +24,7 @@ from Trainer import ConfigurableNN
 from PrediccionPlana import PrediccionPlana
 from PrediccionHomomorfica import PrediccionHomomorfica
 from PrediccionHomomorficaParalela import PrediccionHomomorficaParalela
-from configuracion_ckks import config_optima, GRADO_OPTIMO, ESCALA_OPTIMA
+from configuracion_ckks import ESCALA_OPTIMA
 from scripts import train_with_multiple_seeds, save_final_model_and_plots
 from ResultadosStore import ResultadosStore
 from MonitorMemoria import MonitorMemoria
@@ -230,31 +230,31 @@ def predict_encrypt(path, dataset_len, degree=3, poly_modulus_degree=None,
         ph = PrediccionHomomorfica(data_dir=path, model_path=model_path,
                                    config_path=config_path, degree=degree, verbose=True)
 
-    # --- Configuración CKKS: explícita (barrido) o auto-derivada de la red ---
-    num_lineales = len(ph.pesos_lista)
-    if coeff_mod_bit_sizes is None or poly_modulus_degree is None:
-        # Config CKKS ÓPTIMA auto-derivada (la que usan los datasets que NO se barren):
-        # la cadena y el poly salen de la profundidad de la red y del grado REAL del
-        # polinomio (deben ir acompasados); la escala óptima es irrelevante para la
-        # precisión. Con una sola capa lineal no hay activación y el grado da igual.
-        grado_cfg = degree if num_lineales > 1 else GRADO_OPTIMO
-        cfg = config_optima(num_lineales, grado=grado_cfg,
-                            escala_bits=scale_bits or ESCALA_OPTIMA)
-        poly_modulus_degree = cfg['poly_modulus_degree']
-        coeff_mod_bit_sizes = cfg['coeff_mod_bit_sizes']
-        global_scale_bits = cfg['global_scale_bits']
+    # --- Configuración CKKS ---
+    # Si el barrido pasa los parámetros, se respetan; si no, los calcula la propia
+    # PrediccionHomomorfica a partir de sus capas lineales y su grado, llevando la
+    # escala al máximo que cabe en el presupuesto de bits.
+    explicita = None not in (poly_modulus_degree, coeff_mod_bit_sizes)
+    ini = time.time()
+    if explicita:
+        ph.setup_encryption_context(
+            poly_modulus_degree=poly_modulus_degree,
+            coeff_mod_bit_sizes=coeff_mod_bit_sizes,
+            global_scale=2 ** (scale_bits if scale_bits else ESCALA_OPTIMA))
     else:
-        global_scale_bits = scale_bits if scale_bits else ESCALA_OPTIMA
+        ph.setup_encryption_context()
+    context_time = time.time() - ini
+
+    # La configuración que de verdad se ha usado la deja la clase en ph.ckks
+    poly_modulus_degree = ph.ckks['poly_modulus_degree']
+    coeff_mod_bit_sizes = ph.ckks['coeff_mod_bit_sizes']
+    global_scale_bits = ph.ckks['global_scale_bits']
 
     print(f"🔧 CKKS: grado poly {ph.degree} | poly_modulus_degree {poly_modulus_degree} | "
-          f"escala 2^{global_scale_bits} | coeff_mod {coeff_mod_bit_sizes}")
-
-    # Contexto de cifrado
-    ini = time.time()
-    ph.setup_encryption_context(poly_modulus_degree=poly_modulus_degree,
-                                coeff_mod_bit_sizes=coeff_mod_bit_sizes,
-                                global_scale=2**global_scale_bits)
-    context_time = time.time() - ini
+          f"escala 2^{global_scale_bits} | coeff_mod {coeff_mod_bit_sizes} "
+          f"| {sum(coeff_mod_bit_sizes)} bits -> seguridad "
+          f"{ph.ckks.get('seguridad_efectiva')} | "
+          f"{'explícita' if explicita else 'calculada por la red'}")
 
     if paralela:
         ini = time.time()
@@ -267,6 +267,7 @@ def predict_encrypt(path, dataset_len, degree=3, poly_modulus_degree=None,
             coeff_mod_bit_sizes=coeff_mod_bit_sizes,
             global_scale_bits=global_scale_bits,
             grado_taylor=ph.degree,
+            seguridad_efectiva=ph.ckks.get('seguridad_efectiva'),
             rango_activacion=ph.rango_activacion,
             poly_coeffs=ph.taylor_coeffs,
             batch_size=batch_size,
@@ -295,6 +296,7 @@ def predict_encrypt(path, dataset_len, degree=3, poly_modulus_degree=None,
             coeff_mod_bit_sizes=coeff_mod_bit_sizes,
             global_scale_bits=global_scale_bits,
             grado_taylor=ph.degree,
+            seguridad_efectiva=ph.ckks.get('seguridad_efectiva'),
             rango_activacion=ph.rango_activacion,
             poly_coeffs=ph.taylor_coeffs,
             tiempo_contexto=context_time,
@@ -401,9 +403,11 @@ def main():
                         help="Activar entrenamiento si es primera vez, por defecto sin entrenar")
 
     # --- Barrido de parámetros CKKS (cifrado) ---
-    parser.add_argument("--degree", type=int, default=3, dest="degree",
+    parser.add_argument("--degree", type=int, default=7, dest="degree",
                         help="Grado del polinomio que aproxima la ReLU en cifrado, ajustado "
-                             "por mínimos cuadrados al rango real (2, 3, 5, 7...; default: 3)")
+                             "por mínimos cuadrados al rango real. Por defecto 7: consume los "
+                             "mismos niveles multiplicativos que el 5, ceil(log2(d+1)), y "
+                             "aproxima mejor (2, 3, 5, 7...)")
     parser.add_argument("--scale-bits", type=int, default=None, dest="scale_bits",
                         help="Bits de la escala global CKKS (2^scale). Si se omite, se auto-deriva")
     parser.add_argument("--poly-mod", type=int, default=None, dest="poly_mod",

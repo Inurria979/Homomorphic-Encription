@@ -1,0 +1,34 @@
+# =====================================================================
+# .gitignore de la RAÍZ del repositorio.
+#
+# Alcance: un .gitignore gobierna su carpeta y todo lo que cuelga de ella,
+# y NUNCA puede alcanzar nada por encima suyo. Por eso lo que vive en la
+# raíz tiene que ignorarse desde aquí: el .gitignore del proyecto, que está
+# en "Homomorphic Encription/", no llega.
+#
+# Ese otro .gitignore sigue siendo el que manda dentro del proyecto
+# (experimentos_v2/, venv/, node_modules/, JSON precalculados de la web...).
+# Ojo con lo que SÍ se versiona allí: resultados/resultados.db y el Excel
+# están commiteados a propósito, porque el workflow de GitHub Pages exporta
+# los JSON de la web a partir de la base de datos.
+# =====================================================================
+
+# --- Material de trabajo, fuera del entregable ---
+# Guía de parámetros CKKS, su calculadora y las pruebas que la respaldan.
+# Se usaron para derivar la configuración que hoy calcula
+# PrediccionHomomorfica.config_maxima_precision(); no hacen falta para
+# ejecutar el proyecto. Si algún día quieres publicar esa evidencia, basta
+# con añadir debajo la excepción del fichero concreto, por ejemplo:
+#     !docs/pruebas_ckks.py
+docs/*
+
+# --- Python suelto en la raíz ---
+# (dentro del proyecto ya lo cubre su propio .gitignore)
+__pycache__/
+*.py[cod]
+
+# --- Sistema operativo y editores ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

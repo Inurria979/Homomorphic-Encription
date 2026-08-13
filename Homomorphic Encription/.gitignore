@@ -25,7 +25,10 @@ env/
 # Modelos, gráficas y configuraciones que genera main.py / ejecutar_experimentos.py.
 # Se pueden regenerar entrenando; los resultados que importan ya están en la BD.
 experimentos_v2/
-salida_experimentos.log
+# Logs de las tandas: se regeneran en cada ejecución y no aportan nada que no
+# esté ya en la BD. El patrón cubre salida_experimentos.log, salida_barrido.log
+# y los fechados (salida_optimas_2026-08-13.log, salida_solo_cifrado_*.log...).
+salida_*.log
 
 # --- Web: frontend ---
 node_modules/

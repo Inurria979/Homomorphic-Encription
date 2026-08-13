@@ -128,6 +128,25 @@ def configs_barrido(exp):
     return generar_configuraciones(num_capas_lineales(exp.get('hidden', [])))
 
 
+def configs_a_ejecutar(exp, sin_barrido=False, solo_barrido=False, solo_optimas=False):
+    """
+    Configuraciones cifradas que le tocan a una red en esta ejecución.
+
+    None representa "sin parámetros explícitos": main.py no le pasa ninguno a
+    PrediccionHomomorfica y es la clase la que calcula la configuración óptima
+    para esa red. Es lo que recibe TODA red en modo --solo-optimas, y lo que
+    reciben las redes sin rejilla en modo --solo-barrido, que si no se quedarían
+    sin ninguna predicción cifrada.
+    """
+    if solo_optimas:
+        return [None]
+    if sin_barrido:
+        return []
+    if solo_barrido and not exp.get('barrido'):
+        return [None]
+    return configs_barrido(exp)
+
+
 def registrar(mensaje):
     """Escribe en pantalla y en el log de ejecución (con flush para poder
     seguir el progreso desde otra terminal con tail -f)."""
@@ -224,9 +243,13 @@ def construir_comando(exp, path, batch_size, num_workers, fraccion_ram, semilla_
 
 def construir_comando_barrido(exp, path, cfg, batch_size, num_workers, fraccion_ram):
     """
-    Comando main.py que ejecuta SOLO la predicción homomórfica con una
-    configuración CKKS concreta, reutilizando el modelo ya entrenado del
-    directorio (no vuelve a entrenar ni repite la predicción plana).
+    Comando main.py que ejecuta SOLO la predicción homomórfica, reutilizando el
+    modelo ya entrenado del directorio (no vuelve a entrenar ni repite la
+    predicción plana).
+
+    Con `cfg` se fuerza una configuración CKKS concreta, que es lo que hace el
+    barrido para poder comparar. Con cfg=None no se pasa ninguna y la calcula
+    PrediccionHomomorfica para esa red.
     """
     hidden = exp.get('hidden', [])
     cmd = [
@@ -237,14 +260,17 @@ def construir_comando_barrido(exp, path, cfg, batch_size, num_workers, fraccion_
         '--nc', str(exp.get('nc', 2)),
         '--pca', str(exp.get('pca', 0)),
         '--rg', str(exp.get('rg', 0)),
-        '--degree', str(cfg['grado']),
-        '--scale-bits', str(cfg['global_scale_bits']),
-        '--poly-mod', str(cfg['poly_modulus_degree']),
-        '--coeff-mod', str(cfg['coeff_mod_bit_sizes']).replace(' ', ''),
         '--bz', str(batch_size),
         '--nw', str(num_workers),
         '--ram', str(fraccion_ram),
     ]
+    if cfg is not None:
+        cmd += [
+            '--degree', str(cfg['grado']),
+            '--scale-bits', str(cfg['global_scale_bits']),
+            '--poly-mod', str(cfg['poly_modulus_degree']),
+            '--coeff-mod', str(cfg['coeff_mod_bit_sizes']).replace(' ', ''),
+        ]
     if len(hidden) >= 1:
         cmd += ['--h1', str(hidden[0])]
     if len(hidden) >= 2:
@@ -305,11 +331,12 @@ def ejecutar_experimento(exp, batch_size, num_workers, semilla_maestra, fraccion
 
 
 def ejecutar_config_barrido(exp, cfg, batch_size, num_workers, fraccion_ram):
-    """Una configuración CKKS del barrido sobre el modelo ya entrenado."""
+    """Una predicción cifrada sobre el modelo ya entrenado (cfg None = la óptima)."""
     path = os.path.join(DIR_SALIDA, exp['nombre'])
+    etiqueta = f"{exp['nombre']} · {cfg['etiqueta']}" if cfg else f"{exp['nombre']} · óptima"
     return ejecutar_con_reintento(
         lambda ram: construir_comando_barrido(exp, path, cfg, batch_size, num_workers, ram),
-        f"{exp['nombre']} · {cfg['etiqueta']}", fraccion_ram)
+        etiqueta, fraccion_ram)
 
 
 def main():
@@ -333,11 +360,17 @@ def main():
                              "guardadas en la BD (para reanudar tras un corte)")
     parser.add_argument("--sin-barrido", action='store_true', dest='sin_barrido',
                         help="Solo la corrida base de cada red, sin la rejilla grado x escala")
+    parser.add_argument("--solo-optimas", action='store_true', dest='solo_optimas',
+                        help="Una sola predicción cifrada por red, con la configuración que "
+                             "calcula PrediccionHomomorfica (no entrena ni barre la rejilla)")
     parser.add_argument("--solo-barrido", action='store_true', dest='solo_barrido',
                         help="Solo el barrido CKKS sobre los modelos ya entrenados "
                              "(no entrena ni repite la predicción plana)")
     args = parser.parse_args()
 
+    if args.solo_optimas:
+        # Sin rejilla y sin corrida base: solo la óptima de cada red
+        args.solo_barrido = True
     if args.sin_barrido and args.solo_barrido:
         print("❌ --sin-barrido y --solo-barrido se excluyen entre sí.")
         sys.exit(1)
@@ -381,7 +414,8 @@ def main():
 
     os.makedirs(DIR_SALIDA, exist_ok=True)
 
-    n_configs = 0 if args.sin_barrido else sum(len(configs_barrido(e)) for e in seleccion)
+    n_configs = sum(len(configs_a_ejecutar(e, args.sin_barrido, args.solo_barrido,
+                                           args.solo_optimas)) for e in seleccion)
     n_base = 0 if args.solo_barrido else len(seleccion)
     registrar(f"===== INICIO DE LA BATERÍA: {n_base} corridas base + {n_configs} "
               f"configuraciones CKKS (bz={args.bz}, nw={args.nw}, "
@@ -435,11 +469,13 @@ def main():
                     break
                 # Sin modelo entrenado el barrido no puede correr: se salta entero
                 registrar(f"⚠️  {nombre}: falló la corrida base, se omite su barrido CKKS")
-                tarea += len(configs_barrido(exp))
+                tarea += len(configs_a_ejecutar(exp, args.sin_barrido, args.solo_barrido,
+                                                args.solo_optimas))
                 continue
 
         # --- 2. Barrido CKKS sobre el modelo ya entrenado ---
-        configs = [] if args.sin_barrido else configs_barrido(exp)
+        configs = configs_a_ejecutar(exp, args.sin_barrido, args.solo_barrido,
+                                     args.solo_optimas)
         if configs and not os.path.isfile(modelo):
             registrar(f"⚠️  {nombre}: sin modelo entrenado en {modelo}, se omite su barrido")
             tarea += len(configs)
@@ -447,14 +483,18 @@ def main():
 
         hechas = configs_ya_guardadas(nombre) if (args.continuar and configs) else set()
         for cfg in configs:
-            if clave_config(cfg) in hechas:
-                registrar(f"⏭️  {nombre} · {cfg['etiqueta']}: ya en la BD, se salta (--continuar)")
-                resumen.append((f"{nombre} · {cfg['etiqueta']}", 'SALTADO', 0))
+            # cfg None = sin parámetros explícitos: la configuración la calcula
+            # PrediccionHomomorfica, así que aquí no se sabe de antemano cuál será
+            etiqueta = f"{nombre} · {cfg['etiqueta']}" if cfg else f"{nombre} · óptima"
+            if cfg is not None and clave_config(cfg) in hechas:
+                registrar(f"⏭️  {etiqueta}: ya en la BD, se salta (--continuar)")
+                resumen.append((etiqueta, 'SALTADO', 0))
                 tarea += 1
                 continue
-            ejecutar_tarea(f"{nombre} · {cfg['etiqueta']}",
-                           f"grado {cfg['grado']}, escala 2^{cfg['global_scale_bits']}, "
-                           f"poly {cfg['poly_modulus_degree']}",
+            detalle = (f"grado {cfg['grado']}, escala 2^{cfg['global_scale_bits']}, "
+                       f"poly {cfg['poly_modulus_degree']}") if cfg else \
+                      "configuración calculada por la propia red"
+            ejecutar_tarea(etiqueta, detalle,
                            lambda exp=exp, cfg=cfg: ejecutar_config_barrido(
                                exp, cfg, args.bz, args.nw, args.ram))
             if interrumpido:
