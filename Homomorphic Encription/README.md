@@ -285,6 +285,46 @@ forma controlada en vez de arriesgar la máquina (se recupera con `--continuar`)
 
 El pico de RAM, los hilos efectivos y demás quedan registrados en la BD.
 
+### Cuánto cuesta cada tamaño de anillo
+
+Medido sobre la red más profunda del proyecto, `BreastCancer_Full30`
+(30 → 16 → 8 → 2, tres capas lineales, polinomio de grado 7, 114 muestras de
+test), en una máquina con **11,96 GB** de RAM en WSL. Todos los valores son
+medidas reales, no estimaciones:
+
+| Cadena | Pico de RAM | Lote × hilos | Tiempo | Accuracy | Seguridad |
+|---|---:|---:|---:|---:|---:|
+| N=16 384 · `[60]+[31]*10+[60]` · **con** Galois | 4,10 GB | 1 × 1 | 991 s | 97,37 | 128 |
+| N=16 384 · `[60]+[31]*10+[60]` · sin Galois | 2,70 GB | 1 × 2 | 903 s | 97,37 | 128 |
+| N=16 384 · `[60]+[35]*9+[60]` · sin margen | **2,49 GB** | 1 × 2 | **764 s** | 97,37 | 128 |
+| N=32 768 · `[60]+[50]*9+[60]` | 4,24 GB | 1 × 1 | 1 534 s | 97,37 | **192** |
+
+Tres lecturas:
+
+- **Quitar las claves de Galois ahorra 1,4 GB** y permite un hilo más, porque el
+  margen liberado da para dos lotes simultáneos. No se pierde nada: la inferencia
+  usa `mm` y `polyval` sobre `CKKSTensor`, que no rotan y por tanto no las
+  necesitan.
+- **Duplicar el anillo no compra exactitud.** Las cuatro configuraciones aciertan
+  exactamente lo mismo: 97,37 %, con el mismo F1 y el mismo MCC, es decir, las
+  mismas predicciones en las 114 muestras. A partir del punto en que el ruido del
+  cifrado cae por debajo del error de aproximación del polinomio, subir la escala
+  afina el término pequeño de una suma que domina el otro. Lo que sí compra el
+  anillo grande son **192 bits de seguridad efectiva** en lugar de 128, por no
+  agotar el presupuesto de bits disponible.
+- **El calibrador sobreestima mucho.** La sonda mide 3 646 MB por muestra a
+  N=32 768 (1 821 a N=16 384), pero el pico real del proceso entero fue 4,24 GB:
+  esa memoria se reserva y se libera dentro de cada `mm` reutilizando páginas ya
+  pedidas, no se suma al contexto. Con `FACTOR_SEGURIDAD` en 1,3 se exigían 4,62 GB
+  de margen libre y la corrida se quedaba esperando indefinidamente pese a caber de
+  sobra. Bajarlo a **1,1** la desbloqueó.
+
+En resumen, para esta red y con la restricción estándar de 128 bits, la
+configuración más eficiente es **N=16 384 con escala 2³⁵**: mismo acierto que el
+anillo grande, la mitad de tiempo, el 59 % de la RAM y un hilo más. La corrida a
+N=32 768 solo se justifica si se quieren los 192 bits. El detalle completo está en
+`docs/incidente_ram_N32768.md`.
+
 ---
 
 ## 💾 Resultados: base de datos + Excel

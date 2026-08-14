@@ -29,6 +29,23 @@ experimentos_v2/
 # esté ya en la BD. El patrón cubre salida_experimentos.log, salida_barrido.log
 # y los fechados (salida_optimas_2026-08-13.log, salida_solo_cifrado_*.log...).
 salida_*.log
+# Mediciones sueltas que deja el muestreador de memoria.
+pico_*.txt
+
+# --- Scripts de apoyo ---
+# Lanzadores y reintentos escritos al vuelo para una tanda concreta. La excepción
+# es lanzar.sh, que es lo que levanta la web en local y sí forma parte del
+# proyecto (la excepción va DESPUÉS de la regla; al revés no tendría efecto).
+*.sh
+!web/lanzar.sh
+
+# --- Resultados: solo los vigentes ---
+# En resultados/ conviven la BD y el Excel en uso con los respaldos de tandas
+# anteriores (backup_*.db, *_pre_*, *_barrido_*), que son copias locales y no
+# tienen por qué viajar al repositorio: pesaban más que el proyecto entero.
+resultados/*
+!resultados/resultados.db
+!resultados/resultados.xlsx
 
 # --- Web: frontend ---
 node_modules/

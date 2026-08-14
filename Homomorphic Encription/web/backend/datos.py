@@ -166,7 +166,32 @@ def cargar_predicciones(ruta_bd=RUTA_BD_POR_DEFECTO):
     # Etiqueta de la configuración CKKS de cada fila homomórfica: con el barrido
     # hay VARIAS por experimento y hay que poder distinguirlas ("g5 · 2^31").
     df["config_ckks"] = df.apply(_etiqueta_config, axis=1)
-    return df
+    return solo_optimas(df)
+
+
+def solo_optimas(df):
+    """
+    Deja UNA sola predicción cifrada por experimento: la de mayor escala, que es
+    la configuración óptima que calcula PrediccionHomomorfica (maximiza la escala
+    dentro del presupuesto de bits que permite la seguridad).
+
+    La BD conserva además corridas con otras configuraciones -barridos de grado x
+    escala, controles para comprobar si un anillo mayor compensa- que sirven para
+    el análisis pero no para la web, donde cada red debe aparecer una vez con su
+    configuración definitiva. Las predicciones planas no se tocan.
+    """
+    if df.empty or "tipo" not in df.columns:
+        return df
+    cifradas = df[df["tipo"] == "homomorfica"]
+    if cifradas.empty:
+        return df
+    # La última de cada experimento tras ordenar = mayor escala; a igualdad, mayor
+    # anillo, y a igualdad, la más reciente.
+    mejores = (cifradas
+               .sort_values(["global_scale_bits", "poly_modulus_degree", "id"])
+               .groupby("experimento_id", as_index=False)
+               .tail(1))
+    return df[(df["tipo"] != "homomorfica") | df["id"].isin(mejores["id"])]
 
 
 def _etiqueta_config(fila):

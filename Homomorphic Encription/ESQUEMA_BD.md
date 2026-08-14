@@ -58,9 +58,10 @@ erDiagram
         INTEGER poly_modulus_degree "CKKS"
         TEXT    coeff_mod_bit_sizes "JSON, cadena CKKS"
         INTEGER global_scale_bits "CKKS"
+        INTEGER seguridad_efectiva "bits alcanzados: 128, 192 o 256"
         TEXT    grado_taylor "grado del polinomio"
-        TEXT    rango_activacion "JSON [a,b] ajuste (nuevo)"
-        TEXT    poly_coeffs "JSON coeficientes (nuevo)"
+        TEXT    rango_activacion "JSON [a,b] medido en train+val"
+        TEXT    poly_coeffs "JSON coeficientes del ajuste"
     }
     metricas_clase {
         INTEGER id PK
@@ -77,7 +78,7 @@ erDiagram
 | Relación | Cardinalidad | Clave foránea | Significado |
 |----------|:------------:|---------------|-------------|
 | `experimentos` → `entrenamientos_semilla` | 1 : N | `entrenamientos_semilla.experimento_id` → `experimentos.id` | Cada experimento prueba N semillas (por defecto 50). |
-| `experimentos` → `predicciones` | 1 : N | `predicciones.experimento_id` → `experimentos.id` | Cada experimento genera normalmente 2 predicciones (plana + homomórfica); en las redes con **barrido CKKS** (`ejecutar_experimentos.py`) hay **N homomórficas**, una por configuración de cifrado probada. NO hay restricción UNIQUE. |
+| `experimentos` → `predicciones` | 1 : N | `predicciones.experimento_id` → `experimentos.id` | Cada experimento genera normalmente 2 predicciones (plana + homomórfica); en las redes con **barrido CKKS** (`ejecutar_experimentos.py`) hay **N homomórficas**, una por configuración de cifrado probada, y lo mismo cuando se repite una red con otra configuración para compararla. NO hay restricción UNIQUE; la web se queda con una sola por red, la de mayor escala (ver `web/backend/datos.py::solo_optimas`). |
 | `predicciones` → `metricas_clase` | 1 : N | `metricas_clase.prediccion_id` → `predicciones.id` | Cada predicción tiene una fila por clase (2 en binario, 7 en obesidad...). |
 
 - Las claves primarias son siempre `id INTEGER PRIMARY KEY AUTOINCREMENT`.
@@ -141,7 +142,7 @@ varió la calidad del modelo entre las distintas semillas del Monte Carlo.
 
 ## 🔮 Tabla `predicciones`
 
-**Una fila por evaluación.** Es la tabla central y la más ancha (~69 columnas).
+**Una fila por evaluación.** Es la tabla central y la más ancha (70 columnas).
 Cada experimento produce normalmente dos filas: una `plana` (sin cifrar) y una
 `homomorfica` (sobre datos cifrados); con el barrido CKKS hay varias `homomorfica`
 (una por configuración de cifrado). Agrupo las columnas por bloques.
@@ -204,9 +205,10 @@ Cada experimento produce normalmente dos filas: una `plana` (sin cifrar) y una
 |---------|------|-------------|
 | `poly_modulus_degree` | INTEGER | `poly_modulus_degree` del contexto CKKS (8192/16384/32768). Se deriva de la profundidad de la red por seguridad (128 bits). |
 | `coeff_mod_bit_sizes` | TEXT (JSON) | Tamaños en bits de la cadena de módulos, p. ej. `[60,31,31,31,31,31,60]`. Su longitud fija la profundidad multiplicativa. |
-| `global_scale_bits` | INTEGER | Bits de la escala global (escala = 2^valor). Empíricamente irrelevante para la precisión sobre el suelo mínimo. |
+| `global_scale_bits` | INTEGER | Bits de la escala global (escala = 2^valor). Por debajo del suelo la predicción deja de ser reproducible (con 2^25 y grado 7 dos corridas idénticas dieron 87,5 % y 80,1 %); por encima del punto en que su ruido cae bajo el error del polinomio, subirla no cambia nada. |
+| `seguridad_efectiva` | INTEGER | Bits de seguridad que alcanza de verdad la cadena: 128, 192 o 256. La seguridad no gasta presupuesto, lo **acota**, así que una cadena que no agota el máximo del anillo queda por encima del estándar (p. ej. 570 de 881 bits a N=32768 → 192). NULL en las planas. |
 | `grado_taylor` | TEXT | Grado del polinomio que aproxima la ReLU (3, 5, 7...). *Nombre histórico:* el polinomio ya no es de Taylor, se ajusta al rango real (ver `rango_activacion`/`poly_coeffs`). |
-| `rango_activacion` | TEXT (JSON) | Rango `[a, b]` de las pre-activaciones medido en claro, sobre el que se ajustó el polinomio (~±8…±15, **no** [-1,1]). NULL si la red no tiene capas ocultas. |
+| `rango_activacion` | TEXT (JSON) | Rango `[a, b]` de las pre-activaciones sobre el que se ajustó el polinomio (~±8…±15, **no** [-1,1]). Lo mide `Trainer.last_train` sobre **train+val** con los pesos definitivos y viaja en `model_config.json`, de modo que la inferencia cifrada no necesita ver datos en claro. NULL si la red no tiene capas ocultas. |
 | `poly_coeffs` | TEXT (JSON) | Coeficientes del polinomio ajustado (base de potencias ascendente `[c0..cd]`). Permite reconstruir exactamente la aproximación usada. NULL si no hay activación cifrada. |
 | `batch_size` | INTEGER | Tamaño de lote pedido. |
 | `batch_size_efectivo` | INTEGER | Tamaño de lote realmente usado (tras la calibración de RAM). |

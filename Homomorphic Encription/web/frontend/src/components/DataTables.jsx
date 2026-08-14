@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { api } from '../api'
 
+// La tabla del barrido CKKS no se lista: la web muestra una sola configuración
+// por red (la óptima, ver datos.solo_optimas), así que saldría siempre vacía.
 const TABLAS = [
   ['comparativa', 'Comparativa (plana vs homomórfica + derivadas)'],
-  ['barrido_ckks', 'Barrido de parámetros CKKS (grado × escala)'],
   ['experimentos', 'Experimentos'],
   ['predicciones', 'Predicciones (todas las métricas)'],
   ['semillas', 'Entrenamientos por semilla'],

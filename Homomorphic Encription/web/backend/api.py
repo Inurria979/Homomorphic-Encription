@@ -72,7 +72,10 @@ def _datos():
         _cache["pred"] = D.cargar_predicciones()
         _cache["comp"] = D.tabla_comparativa(_cache["pred"])
         _cache["sem"] = D.cargar_semillas()
+        # Las métricas por clase se recortan a las predicciones que han quedado
+        # (ver datos.solo_optimas), o una red barrida aportaría varias tandas
         _cache["mc"] = D.cargar_metricas_clase()
+        _cache["mc"] = _cache["mc"][_cache["mc"]["prediccion_id"].isin(_cache["pred"]["id"])]
         _cache["barrido"] = D.tabla_barrido_ckks(_cache["pred"])
     return _cache
 

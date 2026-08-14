@@ -6,8 +6,20 @@ import numpy as np
 from PrediccionHomomorfica import PrediccionHomomorfica
 from MonitorMemoria import MB, GB, rss_bytes, liberar_memoria, PresupuestoRAMExcedido
 
-# Colchón sobre la memoria medida en la calibración (es una estimación)
-FACTOR_SEGURIDAD = 1.3
+# Colchón sobre la memoria medida en la calibración (es una estimación).
+#
+# Bajado de 1.3 a 1.1 midiendo sobre la red 30->16->8->2 a N=32768, que es el caso
+# límite del proyecto: la sonda mide ~3640 MB por muestra, frente a un margen que
+# en esta máquina oscila entre 3900 y 4500 MB según lo que haya abierto. O sea que
+# UNA muestra ocupa ya el ~85 % del margen disponible, y cualquier colchón por
+# encima de ~1.15 la deja fuera:
+#     1.3 -> 4740 MB (no cabe nunca)   1.2 -> 4360 MB (no cabe con margen 4300)
+#     1.1 -> 4000 MB (cabe con 4300, justo con 3900)
+# El consumo REAL de esa corrida es 4,24 GB de contexto + 3,65 de la muestra = 7,9
+# de los 11,96 GB de la máquina: lo que sobraba era colchón sobre una estimación,
+# no memoria. NO se toca RESERVA_SISTEMA (1 GB), que es la otra protección y la
+# que evita dejar sin memoria al resto del sistema.
+FACTOR_SEGURIDAD = 1.1
 # Un solo lote nunca debería comerse más que esta fracción del margen libre
 FRACCION_MAX_LOTE = 0.4
 # Fracción del margen que puede ocupar el conjunto de hilos simultáneos
