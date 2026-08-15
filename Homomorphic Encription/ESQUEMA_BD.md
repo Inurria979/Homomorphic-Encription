@@ -306,12 +306,17 @@ rendimiento clase a clase, útil sobre todo en multiclase (obesidad, 7 clases).
   (`entrenamientos_semilla.epoca_optima` → `experimentos.epocas_reentrenamiento`).
 - **Sin restricción UNIQUE en `directorio`:** volver a ejecutar un experimento
   inserta una **fila nueva** en `experimentos` en lugar de actualizar la
-  existente, de modo que el histórico se conserva. Por eso puede haber varios
-  registros con el mismo `directorio`. Conviene tenerlo presente al explotar los
-  datos: tanto la comparativa de la web como la del Excel agrupan por
-  `experimentos.id`, no por `directorio`, así que cada re-ejecución aparece como
-  una entrada independiente. Para quedarse solo con la última de cada directorio
-  hay que filtrar explícitamente (`MAX(id) GROUP BY directorio`).
+  existente, así que técnicamente puede haber varios registros con el mismo
+  `directorio`. Aun así, la BD viva no es un histórico: guarda **una sola
+  entrada por red**, con su predicción plana y la **configuración CKKS
+  definitiva** (la óptima), y las corridas intermedias de los barridos se
+  descartan. Conviene tenerlo presente al explotar los datos: tanto la
+  comparativa de la web como la del Excel agrupan por `experimentos.id`, no por
+  `directorio`; si en algún momento se acumulan re-ejecuciones, cada una aparece
+  como una entrada independiente y hay que filtrar explícitamente
+  (`MAX(id) GROUP BY directorio`) para quedarse con la última. Por el mismo
+  motivo los `id` de `predicciones` no son correlativos: hay huecos donde
+  estuvieron las configuraciones descartadas.
 - **Migración automática:** al abrir una BD antigua, `ResultadosStore._migrar`
   añade con `ALTER TABLE` cualquier columna que falte, sin perder los datos
   existentes. Por eso registros antiguos pueden tener a NULL las columnas de

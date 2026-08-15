@@ -2,7 +2,7 @@
 CAPA DE ACCESO A DATOS DE LA WEB
 ================================
 Lee la base de datos SQLite de resultados (la ÚNICA fuente de verdad del
-proyecto, ver invariante 8 del CLAUDE.md) y la devuelve como DataFrames de
+proyecto, ver invariante 8 del .md) y la devuelve como DataFrames de
 pandas listos para graficar. No escribe nada: abre la BD en modo lectura.
 
 Es pura (no importa Streamlit) para poder probarla sin arrancar el servidor.
