@@ -391,9 +391,9 @@ def main():
                         help=f"Hilos de la predicción homomórfica (default: {os.cpu_count()})")
     parser.add_argument("--semilla", type=int, default=42,
                         help="Semilla maestra base para reproducibilidad (default: 42)")
-    parser.add_argument("--ram", type=float, default=0.75,
+    parser.add_argument("--ram", type=float, default=0.85,
                         help="Fracción de la RAM de WSL usable por cada experimento "
-                             "(default: 0.75, tope absoluto 12 GB)")
+                             "(default: 0.85, unos 10 GB de los 11,7 de la máquina)")
     parser.add_argument("--continuar", action='store_true',
                         help="Salta los experimentos y las configuraciones CKKS que ya están "
                              "guardadas en la BD (para reanudar tras un corte)")
