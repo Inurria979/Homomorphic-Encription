@@ -6,7 +6,7 @@ repetido de Monte Carlo y evalúa el modelo resultante dos veces -en claro y sob
 datos cifrados homomórficamente (TenSEAL/CKKS)-, guardando métricas de ML y de
 sistema en la base de datos y el Excel.
 
-Uso: python main.py <carpeta> [--train] [--dataset ID] [--pca N] ...
+Uso: python main.py <carpeta> [--train] [--dataset ID] [--model_size N] ...
      (ver los argumentos en main() más abajo)
 """
 
@@ -24,6 +24,7 @@ from Trainer import ConfigurableNN
 from PrediccionPlana import PrediccionPlana
 from PrediccionHomomorfica import PrediccionHomomorfica
 from PrediccionHomomorficaParalela import PrediccionHomomorficaParalela
+from analisis_pca import componentes_optimas
 from configuracion_ckks import ESCALA_OPTIMA
 from scripts import train_with_multiple_seeds, save_final_model_and_plots
 from ResultadosStore import ResultadosStore
@@ -39,22 +40,26 @@ RANGO_SEMILLAS = 10_000
 
 
 
-def end_to_end(model_size=5, learning_rate=0.001, n_seeds=50, hidden_layers=[], num_classes=2, path="", dataset_id=17, pca_features=0,batch_size=0, num_workers=0, rg=0, train=False, dataset=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
+def end_to_end(model_size=5, learning_rate=0.001, n_seeds=50, hidden_layers=[], num_classes=2, path="", dataset_id=17, batch_size=0, num_workers=0, rg=0, train=False, dataset=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
     """Construye el modelo según model_size y lanza el pipeline completo."""
-    # Arquitecturas predefinidas para los dos casos más habituales; el resto
-    # se construye a medida con hidden_layers/num_classes
-    if model_size == 5:
-        model = ConfigurableNN(input_size=5, hidden_layers=[], num_classes=2)
-    elif model_size == 30:
-        # Breast Cancer con las 30 características originales
-        model = ConfigurableNN(input_size=model_size, hidden_layers=[16, 8], num_classes=2)
-    else:
-        model = ConfigurableNN(input_size=model_size, hidden_layers=hidden_layers, num_classes=num_classes)
+    # model_size 0 = "decídelo tú": la entrada la fija el criterio de varianza
+    # del 90% (ver analisis_pca).
+    if model_size == 0:
+        model_size = componentes_optimas(dataset_id)
+        print(f"[*] PCA automático: {model_size} componentes (90% de varianza)")
+
+    model = ConfigurableNN(input_size=model_size, hidden_layers=hidden_layers,
+                           num_classes=num_classes)
 
     # Se puede pasar un DataProcessor ya cargado para no volver a descargar
     # el dataset de UCI (útil al encadenar varios experimentos)
     if dataset is None:
         dataset = DataProcessor(dataset_id)
+
+    # El tamaño de entrada ES el nº de componentes PCA, salvo que ya coincida
+    # con el nº de variables del dataset: entonces no hay reducción (0).
+    pca_features = model_size if model_size < dataset.X.shape[1] else 0
+
     store = ResultadosStore()
     end_to_end_mc(model, learning_rate, n_seeds,path, dataset, pca_features=pca_features ,batch_size=batch_size, num_workers=num_workers, rg=rg, train=train, store=store, fraccion_ram=fraccion_ram, solo_homomorfica=solo_homomorfica, sin_homomorfica=sin_homomorfica, ckks=ckks)
 
@@ -365,7 +370,11 @@ def main():
 
     # Argumentos OPCIONALES con valores por defecto
     parser.add_argument("--model_size", type=int, default=5,
-                        help="Componentes PCA / Tamaño de entrada (default: 5)")
+                        help="Tamaño de entrada de la red, que es también el nº de "
+                             "componentes PCA: se reduce a ese tamaño salvo que ya "
+                             "coincida con el nº de variables del dataset, en cuyo "
+                             "caso no hay reducción. 0 = elegirlo con el criterio "
+                             "del 90%% de varianza (default: 5)")
 
     parser.add_argument("--lr", type=float, default=0.001, dest="learning_rate",
                         help="Learning rate (default: 0.001)")
@@ -389,8 +398,6 @@ def main():
                         help="Número de hilos en predicción paralela encriptada")
     parser.add_argument("--rg", type=float, default=0, dest="rg",
                         help="Coeficiente de regularización" )
-    parser.add_argument("--pca", type=int,default=0 ,dest= "pca",
-                        help="Número de características a reducir. Tiene que ser igual que el tamaño del model (primera capa)")
     parser.add_argument("--ram", type=float, default=0.75, dest="ram",
                         help="Fracción de la RAM de WSL usable por la predicción homomórfica (default: 0.75, tope absoluto 12 GB)")
     parser.add_argument("--semilla", type=int, default=None, dest="semilla",
@@ -462,7 +469,6 @@ def main():
         hidden_layers=hidden_layers,
         num_workers=args.nw,
         batch_size=args.bz,
-        pca_features=args.pca,
         rg=args.rg,
         train=args.train,
         fraccion_ram=args.ram,

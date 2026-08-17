@@ -21,6 +21,11 @@ __pycache__/
 venv/
 env/
 
+# --- Tandas anteriores ---
+# Bases de datos, logs y directorios de las tandas ya cerradas, archivados al
+# empezar una rejilla nueva. Son copias locales y no viajan al repositorio.
+experimentos_antiguos/
+
 # --- Salidas de los experimentos ---
 # Modelos, gráficas y configuraciones que genera main.py / ejecutar_experimentos.py.
 # Se pueden regenerar entrenando; los resultados que importan ya están en la BD.

@@ -51,10 +51,27 @@ class DataProcessor:
 
             # Cap de tamaño: los datasets muy grandes (Diabetes) dispararían el
             # tiempo de la predicción homomórfica a horas. Muestreo estratificado.
-            max_samples = 20000
+            max_samples = 10000
             if len(X_df) > max_samples:
                 print(f"[*] Dataset muy grande ({len(X_df)}). Reduciendo a {max_samples} para agilidad.")
                 X_df, _, y, _ = train_test_split(X_df, y, train_size=max_samples, stratify=y, random_state=42)
+
+            # Equilibrado de clases: se deja en todas el tamaño de la minoritaria.
+            # Va DESPUÉS del tope para que el recorte de Diabetes se note también
+            # aquí (10000 -> ~2800 muestras) y su predicción cifrada baje de horas.
+            # La semilla es fija a propósito: el dataset se carga dos veces, una
+            # para elegir las componentes PCA (analisis_pca) y otra para entrenar,
+            # y ambas tienen que ver EXACTAMENTE el mismo subconjunto.
+            clases, cuentas = np.unique(y, return_counts=True)
+            if cuentas.min() != cuentas.max():
+                rng = np.random.default_rng(42)
+                n_por_clase = int(cuentas.min())
+                idx = np.sort(np.concatenate([
+                    rng.choice(np.flatnonzero(y == c), n_por_clase, replace=False)
+                    for c in clases]))
+                print(f"[*] Equilibrando clases: {len(y)} -> {len(idx)} muestras "
+                      f"({n_por_clase} por cada una de las {len(clases)} clases).")
+                X_df, y = X_df.iloc[idx], y[idx]
 
             # Codificar columnas categóricas a numéricas
             for col in X_df.columns:

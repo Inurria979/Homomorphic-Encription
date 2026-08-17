@@ -92,7 +92,7 @@ class Trainer:
         # CrossEntropyLoss = LogSoftmax + NLLLoss (espera logits crudos)
         self.criterion = nn.CrossEntropyLoss()
         # weight_decay = regularización L2 (parámetro rg)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate, weight_decay=rg)
+        self.optimizer = torch.optim.AdamW(self.model.parameters(), lr=learning_rate, weight_decay=rg)
         
         # Rango de pre-activaciones medido al final de last_train
         self.rango_preactivaciones = None

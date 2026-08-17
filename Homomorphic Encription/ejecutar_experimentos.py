@@ -73,51 +73,92 @@ FICHERO_REGISTRO = os.path.join(DIR_SALIDA, 'registro_ejecucion.log')
 PYTHON = sys.executable  # el intérprete del venv activo (.venv/bin/python)
 
 # ---------------------------------------------------------------------------
-# Definición de experimentos.
-#   lento=True   -> dataset grande (Diabetes, ~4000 muestras de test): la
-#                   predicción homomórfica puede tardar varias horas.
+# Definición de experimentos. Ocho redes por dataset: dos sin capa oculta, cuatro
+# con una y dos con dos, y las profundas por partida doble, con y sin L2.
+#   model_size=0 -> la entrada la calcula analisis_pca con el criterio del 90% de
+#                   varianza (7 en Breast Cancer, 17 en Diabetes, 12 en Obesidad
+#                   y Credit); con un número, ese es el ancho y solo hay
+#                   reducción si es menor que el nº de variables del dataset.
+#   lento=True   -> dataset grande (Diabetes): la predicción homomórfica puede
+#                   tardar horas.
 #   barrido=True -> además de la corrida base, se evalúa la rejilla completa de
 #                   configuraciones CKKS (grado x escala) sobre el modelo ya
 #                   entrenado, sin reentrenar.
 # ---------------------------------------------------------------------------
+REG_L2 = 0.01
+
 EXPERIMENTOS = [
-    # --- Breast Cancer (rápidos, ~114 muestras de test) ---
-    dict(nombre='BreastCancer_PCA5', dataset_id=17, model_size=5, hidden=[], nc=2,
-         pca=5, rg=0, barrido=True, descripcion='Repite Breast_Cancer: PCA a 5 -> red 5->2'),
-    dict(nombre='BreastCancer_PCA5_rg', dataset_id=17, model_size=5, hidden=[], nc=2,
-         pca=5, rg=1e-4, barrido=True,
-         descripcion='Repite directorio_test_rg, ahora con regularización real'),
-    dict(nombre='BreastCancer_PCA10', dataset_id=17, model_size=10, hidden=[], nc=2,
-         pca=10, rg=0, barrido=True, descripcion='NUEVO: PCA a 10 -> red 10->2'),
-    dict(nombre='BreastCancer_Full30', dataset_id=17, model_size=30, hidden=[16, 8], nc=2,
-         pca=0, rg=0, barrido=True,
-         descripcion='Repite BC_entero: 30 características -> 30->16->8->2'),
+    # --- Breast Cancer (30 variables, ~114 muestras de test) ---
+    dict(nombre='BreastCancer_PCA7', dataset_id=17, model_size=0, hidden=[], nc=2,
+         rg=0, descripcion='PCA al 90% de varianza -> regresión logística'),
+    dict(nombre='BreastCancer_Full30', dataset_id=17, model_size=30, hidden=[], nc=2,
+         rg=0, descripcion='30 variables -> regresión logística'),
+    dict(nombre='BreastCancer_30-12', dataset_id=17, model_size=30, hidden=[12], nc=2,
+         rg=0, descripcion='30 variables -> una capa oculta'),
+    dict(nombre='BreastCancer_30-12_rg', dataset_id=17, model_size=30, hidden=[12], nc=2,
+         rg=REG_L2, descripcion='30 variables -> una capa oculta, con L2'),
+    dict(nombre='BreastCancer_PCA7-4', dataset_id=17, model_size=0, hidden=[4], nc=2,
+         rg=0, descripcion='PCA al 90% -> una capa oculta'),
+    dict(nombre='BreastCancer_PCA7-4_rg', dataset_id=17, model_size=0, hidden=[4], nc=2,
+         rg=REG_L2, descripcion='PCA al 90% -> una capa oculta, con L2'),
+    dict(nombre='BreastCancer_30-16-8', dataset_id=17, model_size=30, hidden=[16, 8], nc=2,
+         rg=0, descripcion='30 variables -> dos capas ocultas'),
+    dict(nombre='BreastCancer_30-16-8_rg', dataset_id=17, model_size=30, hidden=[16, 8], nc=2,
+         rg=REG_L2, descripcion='30 variables -> dos capas ocultas, con L2'),
 
-    # --- Credit Approval (~138 muestras de test) ---
-    # Sin barrido: red sin capas ocultas, entra como control de otro dominio.
-    dict(nombre='Credit_PCA5', dataset_id=27, model_size=5, hidden=[], nc=2,
-         pca=5, rg=0, descripcion='Repite CreditApproval: PCA a 5 -> red 5->2'),
+    # --- Credit Approval (15 variables, ~138 muestras de test) ---
+    dict(nombre='Credit_PCA12', dataset_id=27, model_size=0, hidden=[], nc=2,
+         rg=0, descripcion='PCA al 90% de varianza -> regresión logística'),
+    dict(nombre='Credit_Full15', dataset_id=27, model_size=15, hidden=[], nc=2,
+         rg=0, descripcion='15 variables -> regresión logística'),
+    dict(nombre='Credit_15-7', dataset_id=27, model_size=15, hidden=[7], nc=2,
+         rg=0, descripcion='15 variables -> una capa oculta'),
+    dict(nombre='Credit_15-7_rg', dataset_id=27, model_size=15, hidden=[7], nc=2,
+         rg=REG_L2, descripcion='15 variables -> una capa oculta, con L2'),
+    dict(nombre='Credit_PCA12-6', dataset_id=27, model_size=0, hidden=[6], nc=2,
+         rg=0, descripcion='PCA al 90% -> una capa oculta'),
+    dict(nombre='Credit_PCA12-6_rg', dataset_id=27, model_size=0, hidden=[6], nc=2,
+         rg=REG_L2, descripcion='PCA al 90% -> una capa oculta, con L2'),
+    dict(nombre='Credit_15-10-7', dataset_id=27, model_size=15, hidden=[10, 7], nc=2,
+         rg=0, descripcion='15 variables -> dos capas ocultas'),
+    dict(nombre='Credit_15-10-7_rg', dataset_id=27, model_size=15, hidden=[10, 7], nc=2,
+         rg=REG_L2, descripcion='15 variables -> dos capas ocultas, con L2'),
 
-    # --- Obesidad (7 clases, ~423 muestras de test) ---
+    # --- Obesidad (16 variables, 7 clases, ~423 muestras de test) ---
     dict(nombre='Obesity_16-7', dataset_id=544, model_size=16, hidden=[], nc=7,
-         pca=0, rg=0, descripcion='Repite Obesity_SinCapasIntermedias: 16->7'),
-    dict(nombre='Obesity_16-10-7', dataset_id=544, model_size=16, hidden=[10], nc=7,
-         pca=0, rg=0, barrido=True, descripcion='Repite Obesity: 16->10->7'),
-    dict(nombre='Obesity_16-10-7_rg', dataset_id=544, model_size=16, hidden=[10], nc=7,
-         pca=0, rg=1e-4, barrido=True,
-         descripcion='NUEVO: lo que Obesity_rg_16-10-7 pretendía ser (rg real)'),
-    dict(nombre='Obesity_12-7_rg', dataset_id=544, model_size=12, hidden=[], nc=7,
-         pca=12, rg=1e-4, descripcion='Repite Obesity_rg_12_7 con regularización real'),
-    dict(nombre='Obesity_12-5-7_rg', dataset_id=544, model_size=12, hidden=[5], nc=7,
-         pca=12, rg=1e-4, barrido=True,
-         descripcion='Repite Obesity_rg_12-5-7 con regularización real'),
+         rg=0, descripcion='16 variables -> regresión logística multinomial'),
+    dict(nombre='Obesity_PCA12-7', dataset_id=544, model_size=0, hidden=[], nc=7,
+         rg=0, descripcion='PCA al 90% de varianza -> regresión logística multinomial'),
+    dict(nombre='Obesity_PCA12-9-7', dataset_id=544, model_size=0, hidden=[9], nc=7,
+         rg=0, descripcion='PCA al 90% -> una capa oculta'),
+    dict(nombre='Obesity_PCA12-9-7_rg', dataset_id=544, model_size=0, hidden=[9], nc=7,
+         rg=REG_L2, descripcion='PCA al 90% -> una capa oculta, con L2'),
+    dict(nombre='Obesity_16-12-7', dataset_id=544, model_size=16, hidden=[12], nc=7,
+         rg=0, descripcion='16 variables -> una capa oculta'),
+    dict(nombre='Obesity_16-12-7_rg', dataset_id=544, model_size=16, hidden=[12], nc=7,
+         rg=REG_L2, descripcion='16 variables -> una capa oculta, con L2'),
+    dict(nombre='Obesity_16-13-9-7', dataset_id=544, model_size=16, hidden=[13, 9], nc=7,
+         rg=0, descripcion='16 variables -> dos capas ocultas'),
+    dict(nombre='Obesity_16-13-9-7_rg', dataset_id=544, model_size=16, hidden=[13, 9], nc=7,
+         rg=REG_L2, descripcion='16 variables -> dos capas ocultas, con L2'),
 
-    # --- Diabetes (LENTOS: hasta 20000 muestras -> test de 4000) ---
-    dict(nombre='Diabetes_PCA5', dataset_id=891, model_size=5, hidden=[], nc=2,
-         pca=5, rg=0, lento=True, descripcion='Repite Diabetes: PCA a 5 -> red 5->2'),
-    dict(nombre='Diabetes_12-5', dataset_id=891, model_size=12, hidden=[5], nc=2,
-         pca=12, rg=0, lento=True,
-         descripcion='Repite Diabetes_Todo_Dataset: 12->5->2 (cap 20000 muestras)'),
+    # --- Diabetes (21 variables, LENTOS: test de 2000 muestras) ---
+    dict(nombre='Diabetes_PCA17', dataset_id=891, model_size=0, hidden=[], nc=2,
+         rg=0, lento=True, descripcion='PCA al 90% de varianza -> regresión logística'),
+    dict(nombre='Diabetes_Full21', dataset_id=891, model_size=21, hidden=[], nc=2,
+         rg=0, lento=True, descripcion='21 variables -> regresión logística'),
+    dict(nombre='Diabetes_21-7', dataset_id=891, model_size=21, hidden=[7], nc=2,
+         rg=0, lento=True, descripcion='21 variables -> una capa oculta'),
+    dict(nombre='Diabetes_21-7_rg', dataset_id=891, model_size=21, hidden=[7], nc=2,
+         rg=REG_L2, lento=True, descripcion='21 variables -> una capa oculta, con L2'),
+    dict(nombre='Diabetes_PCA17-9', dataset_id=891, model_size=0, hidden=[9], nc=2,
+         rg=0, lento=True, descripcion='PCA al 90% -> una capa oculta'),
+    dict(nombre='Diabetes_PCA17-9_rg', dataset_id=891, model_size=0, hidden=[9], nc=2,
+         rg=REG_L2, lento=True, descripcion='PCA al 90% -> una capa oculta, con L2'),
+    dict(nombre='Diabetes_21-15-7', dataset_id=891, model_size=21, hidden=[15, 7], nc=2,
+         rg=0, lento=True, descripcion='21 variables -> dos capas ocultas'),
+    dict(nombre='Diabetes_21-15-7_rg', dataset_id=891, model_size=21, hidden=[15, 7], nc=2,
+         rg=REG_L2, lento=True, descripcion='21 variables -> dos capas ocultas, con L2'),
 ]
 
 
@@ -223,7 +264,6 @@ def construir_comando(exp, path, batch_size, num_workers, fraccion_ram, semilla_
         '--model_size', str(exp['model_size']),
         '--dataset', str(exp['dataset_id']),
         '--nc', str(exp.get('nc', 2)),
-        '--pca', str(exp.get('pca', 0)),
         '--rg', str(exp.get('rg', 0)),
         '--lr', str(exp.get('lr', 0.001)),
         '--seeds', str(exp.get('n_seeds', 50)),
@@ -258,7 +298,6 @@ def construir_comando_barrido(exp, path, cfg, batch_size, num_workers, fraccion_
         '--model_size', str(exp['model_size']),
         '--dataset', str(exp['dataset_id']),
         '--nc', str(exp.get('nc', 2)),
-        '--pca', str(exp.get('pca', 0)),
         '--rg', str(exp.get('rg', 0)),
         '--bz', str(batch_size),
         '--nw', str(num_workers),
@@ -376,13 +415,15 @@ def main():
         sys.exit(1)
 
     if args.listar:
-        print(f"{'Nombre':<25} {'Dataset':<8} {'Arquitectura':<18} {'PCA':<4} {'rg':<8} Descripción")
+        print(f"{'Nombre':<25} {'Dataset':<8} {'Arquitectura':<18} {'rg':<8} Descripción")
         print("-" * 110)
         total_configs = 0
         for exp in EXPERIMENTOS:
-            arq = ' -> '.join(map(str, [exp['model_size']] + exp.get('hidden', []) + [exp['nc']]))
+            # model_size 0 = lo calcula analisis_pca; aquí aún no se sabe el valor
+            entrada = 'PCA' if exp['model_size'] == 0 else exp['model_size']
+            arq = ' -> '.join(map(str, [entrada] + exp.get('hidden', []) + [exp['nc']]))
             lento = ' (LENTO)' if exp.get('lento') else ''
-            print(f"{exp['nombre']:<25} {exp['dataset_id']:<8} {arq:<18} {exp.get('pca', 0):<4} "
+            print(f"{exp['nombre']:<25} {exp['dataset_id']:<8} {arq:<18} "
                   f"{exp.get('rg', 0):<8} {exp['descripcion']}{lento}")
             configs = configs_barrido(exp)
             total_configs += len(configs)
