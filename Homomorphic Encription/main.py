@@ -40,7 +40,7 @@ RANGO_SEMILLAS = 10_000
 
 
 
-def end_to_end(model_size=5, learning_rate=0.001, n_seeds=50, hidden_layers=[], num_classes=2, path="", dataset_id=17, batch_size=0, num_workers=0, rg=0, train=False, dataset=None, fraccion_ram=0.85, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
+def end_to_end(model_size=5, learning_rate=0.001, n_seeds=50, hidden_layers=[], num_classes=2, path="", dataset_id=17, batch_size=0, num_workers=0, rg=0, train=False, dataset=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
     """Construye el modelo según model_size y lanza el pipeline completo."""
     # model_size 0 = "decídelo tú": la entrada la fija el criterio de varianza
     # del 90% (ver analisis_pca).
@@ -64,7 +64,7 @@ def end_to_end(model_size=5, learning_rate=0.001, n_seeds=50, hidden_layers=[], 
     end_to_end_mc(model, learning_rate, n_seeds,path, dataset, pca_features=pca_features ,batch_size=batch_size, num_workers=num_workers, rg=rg, train=train, store=store, fraccion_ram=fraccion_ram, solo_homomorfica=solo_homomorfica, sin_homomorfica=sin_homomorfica, ckks=ckks)
 
 
-def end_to_end_mc(model, learning_rate, n_seeds, path, dataset, batch_size, num_workers, rg=0, pca_features=0, train = False, store=None, fraccion_ram=0.85, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
+def end_to_end_mc(model, learning_rate, n_seeds, path, dataset, batch_size, num_workers, rg=0, pca_features=0, train = False, store=None, fraccion_ram=0.75, solo_homomorfica=False, sin_homomorfica=False, ckks=None):
     """
     Submuestreo aleatorio repetido (Monte Carlo) + evaluación.
 
@@ -189,7 +189,7 @@ def predict_plain(path, store=None, experimento_id=None):
 
 def predict_encrypt(path, dataset_len, degree=3, poly_modulus_degree=None,
                     scale_bits=None, coeff_mod_bit_sizes=None,
-                    batch_size=10, num_workers=12, fraccion_ram=0.85,
+                    batch_size=10, num_workers=12, fraccion_ram=0.75,
                     store=None, experimento_id=None):
     """
     Predicción homomórfica con parámetros CKKS configurables.
@@ -227,7 +227,7 @@ def predict_encrypt(path, dataset_len, degree=3, poly_modulus_degree=None,
           f"límite de uso: {monitor.limite / 1024**3:.1f} GB")
 
     # Test pequeño: todo de una vez (serial). Grande: por lotes con control de RAM.
-    paralela = n_samples >= 100
+    paralela = n_samples >= 10
     if paralela:
         ph = PrediccionHomomorficaParalela(data_dir=path, model_path=model_path,
                                            config_path=config_path, degree=degree, verbose=True)
@@ -398,9 +398,9 @@ def main():
                         help="Número de hilos en predicción paralela encriptada")
     parser.add_argument("--rg", type=float, default=0, dest="rg",
                         help="Coeficiente de regularización" )
-    parser.add_argument("--ram", type=float, default=0.85, dest="ram",
+    parser.add_argument("--ram", type=float, default=0.75, dest="ram",
                         help="Fracción de la RAM de WSL usable por la predicción homomórfica "
-                             "(default: 0.85, unos 10 GB de los 11,7 de la máquina)")
+                             "(default: 0.75, unos 8,8 GB de los 11,7 de la máquina)")
     parser.add_argument("--semilla", type=int, default=None, dest="semilla",
                         help="Semilla maestra: fija random/torch antes de generar las semillas "
                              "del Monte Carlo, para que la ejecución sea reproducible")

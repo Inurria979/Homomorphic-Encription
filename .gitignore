@@ -32,3 +32,5 @@ __pycache__/
 Thumbs.db
 .idea/
 .vscode/
+
+tabla_experimentos.py

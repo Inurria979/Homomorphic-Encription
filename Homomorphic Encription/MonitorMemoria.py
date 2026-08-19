@@ -104,7 +104,7 @@ class MonitorMemoria:
       - resumen(): pico y límites para guardar en la BD
     """
 
-    def __init__(self, fraccion_limite=0.85, tope_absoluto_gb=12.0, intervalo=0.2):
+    def __init__(self, fraccion_limite=0.75, tope_absoluto_gb=12.0, intervalo=0.2):
         self.ram_total = mem_total_bytes()
         self.limite = min(int(self.ram_total * fraccion_limite),
                           int(tope_absoluto_gb * GB))
